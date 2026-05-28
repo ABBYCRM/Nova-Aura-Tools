@@ -41,6 +41,9 @@ router.all("/v1/*splat", async (req, res) => {
       "upgrade",
       "proxy-authenticate",
       "proxy-authorization",
+      // fetch() auto-decompresses — strip these so clients don't double-decompress
+      "content-encoding",
+      "content-length",
     ]);
     upstream.headers.forEach((v, k) => {
       if (!skipHeaders.has(k.toLowerCase())) res.setHeader(k, v);
