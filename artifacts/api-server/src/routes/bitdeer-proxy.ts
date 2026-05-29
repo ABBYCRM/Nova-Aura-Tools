@@ -1,17 +1,74 @@
 import { Router } from "express";
+import {
+  conversationKeyFor,
+  lastUserText,
+  recordTurn,
+  getMemoryDigest,
+  type ChatMessage,
+} from "../lib/scratchpad";
 
 const router = Router();
 
 const BITDEER_BASE = "https://api-inference.bitdeer.ai";
 const API_KEY = process.env.BITDEER_API_KEY ?? "";
 
+const MEMORY_HEADER =
+  "Continuity memory — things you already know about Robert from past conversations. " +
+  "Use it naturally for context; do not recite it or mention that you have notes.\n";
+
+// Pull assistant text out of a streamed SSE chunk so we can capture the reply.
+function extractDeltas(buffer: string): { text: string; rest: string } {
+  let text = "";
+  const parts = buffer.split("\n");
+  const rest = parts.pop() ?? "";
+  for (const line of parts) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    try {
+      const json = JSON.parse(payload);
+      const delta = json?.choices?.[0]?.delta?.content;
+      if (typeof delta === "string") text += delta;
+    } catch {
+      // partial JSON across chunks — ignore, handled by buffering
+    }
+  }
+  return { text, rest };
+}
+
 // Streaming proxy — mounted on the router at /api, so
 // req.path within this router is e.g. /v1/chat/completions
 router.all("/v1/*splat", async (req, res) => {
-  // req.path is relative to the router mount point → /v1/chat/completions
-  // req.url includes query string → /v1/chat/completions?foo=bar
-  const qs = req.url.slice(req.path.length); // query string only, or ""
+  const qs = req.url.slice(req.path.length);
   const upstreamUrl = `${BITDEER_BASE}${req.path}${qs}`;
+
+  const isChat =
+    req.method === "POST" &&
+    req.path === "/v1/chat/completions" &&
+    req.body != null &&
+    Array.isArray(req.body.messages);
+
+  // Memory injection + capture setup (best-effort; never blocks the chat).
+  let convKey: string | null = null;
+  let userText = "";
+  const model: string = isChat ? String(req.body.model ?? "") : "";
+  if (isChat) {
+    const messages = req.body.messages as ChatMessage[];
+    convKey = conversationKeyFor(messages);
+    userText = lastUserText(messages);
+    try {
+      const digest = await getMemoryDigest();
+      if (digest) {
+        const memoryMsg = { role: "system", content: MEMORY_HEADER + digest };
+        const firstNonSystem = messages.findIndex((m) => m.role !== "system");
+        const at = firstNonSystem === -1 ? messages.length : firstNonSystem;
+        messages.splice(at, 0, memoryMsg);
+      }
+    } catch (e) {
+      req.log.warn({ err: e }, "scratchpad memory injection skipped");
+    }
+  }
 
   const hasBody =
     req.method !== "GET" &&
@@ -28,7 +85,6 @@ router.all("/v1/*splat", async (req, res) => {
         Accept: req.headers.accept ?? "*/*",
       },
       body: hasBody ? JSON.stringify(req.body) : undefined,
-      // @ts-expect-error Node 24 fetch supports duplex
       duplex: "half",
     });
 
@@ -54,15 +110,35 @@ router.all("/v1/*splat", async (req, res) => {
       return;
     }
 
+    const captureOk = isChat && convKey && upstream.ok;
+    let assistantText = "";
+    let sseBuffer = "";
+    const decoder = new TextDecoder();
+
     const reader = upstream.body.getReader();
     const pump = async () => {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (captureOk && value) {
+          sseBuffer += decoder.decode(value, { stream: true });
+          const { text, rest } = extractDeltas(sseBuffer);
+          assistantText += text;
+          sseBuffer = rest;
+        }
         const ok = res.write(value);
         if (!ok) await new Promise<void>((r) => res.once("drain", r));
       }
       res.end();
+
+      if (captureOk) {
+        recordTurn({
+          conversationKey: convKey!,
+          userText,
+          assistantText,
+          model,
+        }).catch((e) => req.log.warn({ err: e }, "scratchpad recordTurn failed"));
+      }
     };
     pump().catch((e) => {
       req.log.error({ err: e }, "bitdeer-proxy stream error");

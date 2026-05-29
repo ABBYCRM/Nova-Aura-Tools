@@ -50,6 +50,7 @@ Nova is a personal AI assistant and autonomous agent system for Robert Matthews.
 - Proxy mode: Vite dev server proxies `/api-proxy` → `https://api-inference.bitdeer.ai` to avoid CORS issues; set Base URL to `/api-proxy/v1` in Settings
 - Gateway (WebSocket) mode: routes through OpenClaw gateway — requires OpenClaw deployed separately
 - Deep worker: background reasoning daemon (`scripts/deep-worker.mjs`) dispatches hard tasks to a separate model (Kimi-K2.6 by default)
+- Scratchpad memory ("lattice fidelity"): cross-conversation continuity. Capture + memory injection happen server-side in the api-server proxy (`bitdeer-proxy.ts`), so they work on both Replit and Railway. Distillation runs in a standalone daemon (`scripts/scratchpad-daemon.mjs`, registered as workflow "Nova: Scratchpad Daemon"). Replit + Railway share `DATABASE_URL`, so a single daemon (run on Replit only) serves both — do NOT run the daemon on Railway.
 
 ## Product
 
@@ -59,6 +60,7 @@ Nova is a personal AI assistant and autonomous agent system for Robert Matthews.
 - **Deep Worker**: Submit hard problems as background jobs, retrieve results asynchronously
 - **Autonomous heartbeat**: Cron-driven self-management loop that polls tasks, patches bugs, reports status
 - **Anti-hallucination**: Deterministic verifier gates every factual claim before it's sent
+- **Scratchpad memory**: Cross-conversation continuity. Every turn is captured; a daemon distills each conversation into `{category, title, summary, keyFacts}` and a capped digest is injected into future chats. Viewable in Settings → "Scratch pad", grouped by category (identity/health/esoteric/manifestation/quantum/tasks/general)
 
 ## API Keys (set in Settings modal)
 

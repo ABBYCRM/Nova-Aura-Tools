@@ -7,7 +7,11 @@
     "hello": "tsx ./src/hello.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "deep-worker": "node deep-worker.mjs",
-    "poll-events": "node poll-events.mjs"
+    "poll-events": "node poll-events.mjs",
+    "scratchpad-daemon": "node scratchpad-daemon.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",
