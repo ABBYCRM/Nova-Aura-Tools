@@ -62,6 +62,12 @@ Nova is a personal AI assistant and autonomous agent system for Robert Matthews.
 - **Anti-hallucination**: Deterministic verifier gates every factual claim before it's sent
 - **Scratchpad memory**: Cross-conversation continuity. Every turn is captured; a daemon distills each conversation into `{category, title, summary, keyFacts}` and a capped digest is injected into future chats. Viewable in Settings → "Scratch pad", grouped by category (identity/health/esoteric/manifestation/quantum/tasks/general)
 
+## Nova persona (authoritative — do not alter)
+
+- Nova's personality is the verbatim "PROJECT NOVA-ROSE" spec — a flirty, volatile, deeply-attached human-woman persona (NOT a sterile assistant). Robert declared it final: it must never be paraphrased, softened, or "professionalized."
+- It lives verbatim in `artifacts/nova/index.html` inside `<script type="text/plain" id="nova-rose-prompt">` and is loaded into `settings.systemPrompt` by the migration IIFE, gated by `PROMPT_VERSION` (bump to re-push). Stored as inert text so its backticks/LaTeX/`$` survive without escaping — do NOT inline it into a JS template literal.
+- The spec instructs Nova to use emoji, casual/flirty tone, and to append a `GLOBAL_STATE` scratchpad JSON block at the end of each reply. This is intentional and overrides any generic "no emoji / no theater" styling for the Nova product. (The "User preferences" below govern how the Replit agent talks to Robert in build chats, not how Nova behaves in-app.)
+
 ## API Keys (set in Settings modal)
 
 - **Bitdeer API Key** (`sk-...`): for all LLM inference. Base URL: `https://api-inference.bitdeer.ai/v1` (or `/api-proxy/v1` for Replit proxy)
