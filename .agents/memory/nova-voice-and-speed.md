@@ -19,3 +19,11 @@ description: How response-speed and TTS-voice are controlled in the Nova chat UI
 - **The browser fallback ignores `settings.ttsVoice`** — it uses `settings.voiceName` (via `pickBestVoice`) + `settings.speechRate`. `utt.pitch` is not set and is not a setting.
 - **Consequence:** setting `ttsVoice` (e.g. `'shimmer'`) is inert for current users; only `speechRate` actually affects the current voice. A genuinely "sweet/human" voice requires neural TTS, which requires an OpenAI key AND a UI field to set `settings.openaiKey` (none exists yet).
 - Bitdeer offers no TTS/audio model (models list is LLM + image + embedding/rerank only), so neural TTS must go through OpenAI.
+
+## Adding a settings field bob.js doesn't know about (durable pattern)
+- `bob.js` `loadSettings()` does `Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage 'bob-settings'))` and `saveAndClose()` only writes the *known* input fields — it never deletes unknown keys. So a new setting (e.g. `openaiKey`) can be persisted from an inline `index.html` script without editing the compiled bundle.
+- **Pattern:** add the input to the modal; an inline IIFE populates it from `bob-settings` on Settings-open, and on the Save button click defers with `setTimeout(0)` so it runs AFTER bob.js's synchronous `saveAndClose()` rewrites localStorage, then merges the new key into `bob-settings` and `location.reload()`s if it changed (so `loadSettings` re-reads it into the in-memory `settings`).
+- **Why the setTimeout(0):** bob.js's save handler is synchronous and rewrites the whole settings blob; running before it would get clobbered. Deferring to the next macrotask guarantees you patch the post-save object. Inline scripts load before `/assets/bob.js`, so this ordering holds.
+
+## Persona / "talks like a teacher" (durable lesson)
+- The system prompt lives in the `NOVA_PROMPT` template in `index.html` (gated by `promptVersion`). A "name the specific link when it backs your answer" + bulleted source list made Nova sound like a citing professor. To keep grounding WITHOUT the teacher tone: keep source URLs inline as model-only reference, but explicitly instruct "don't quote sources or drop links unless asked." Bump `PROMPT_VERSION` to push to existing users.
