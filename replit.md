@@ -50,7 +50,8 @@ Nova is a personal AI assistant and autonomous agent system for Robert Matthews.
 - Proxy mode: Vite dev server proxies `/api-proxy` → `https://api-inference.bitdeer.ai` to avoid CORS issues; set Base URL to `/api-proxy/v1` in Settings
 - Gateway (WebSocket) mode: routes through OpenClaw gateway — requires OpenClaw deployed separately
 - Deep worker: background reasoning daemon (`scripts/deep-worker.mjs`) dispatches hard tasks to a separate model (Kimi-K2.6 by default)
-- Scratchpad memory ("lattice fidelity"): cross-conversation continuity. Capture + memory injection happen server-side in the api-server proxy (`bitdeer-proxy.ts`), so they work on both Replit and Railway. Distillation runs in a standalone daemon (`scripts/scratchpad-daemon.mjs`, registered as workflow "Nova: Scratchpad Daemon"). Replit + Railway share `DATABASE_URL`, so a single daemon (run on Replit only) serves both — do NOT run the daemon on Railway.
+- Scratchpad memory ("lattice fidelity"): cross-conversation continuity. Capture + memory injection happen server-side in the api-server proxy (`bitdeer-proxy.ts`), so they work on any host. Distillation runs in a standalone daemon (`scripts/scratchpad-daemon.mjs`, registered as workflow "Nova: Scratchpad Daemon") on Replit only.
+- Production is deployed on **Render** (web service `nova`, https://nova-sllb.onrender.com, branch `replit-sync`, Docker) with its **own Render-managed Postgres** (`nova-db`). The Render web service uses the DB's **internal** connection string as `DATABASE_URL`. The Replit daemon distills the live Render DB via `SCRATCHPAD_DATABASE_URL` (= Render **external** string + `?sslmode=no-verify`); Render's DB IP allowlist must stay open (`0.0.0.0/0`) for the daemon to reach it. See `.agents/memory/render-postgres-connect.md`. Render free Postgres expires ~30 days after creation — upgrade the plan to keep it.
 
 ## Product
 
