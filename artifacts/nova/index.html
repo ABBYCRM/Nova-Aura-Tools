@@ -107,7 +107,7 @@ body {
 #new-chat-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
 
 .history-section {
-  flex: 1; overflow-y: auto; padding: 4px 8px;
+  flex: 1 1 auto; overflow-y: auto; padding: 4px 8px; min-height: 140px;
 }
 
 .history-label {
@@ -137,7 +137,27 @@ body {
 .history-item:hover .hi-del { opacity: 1; }
 .history-item .hi-del:hover { color: var(--danger); }
 
-.workspaces-section { padding: 6px 12px 12px; border-top: 1px solid var(--border); }
+.workspaces-section { padding: 4px 12px 10px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.ws-toggle, .gs-head {
+  width: 100%; background: transparent; border: 0; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.68rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.08em; padding: 8px 4px 4px;
+}
+.ws-toggle:hover, .gs-head:hover { color: var(--text); }
+.ws-chevron { width: 12px; height: 12px; flex-shrink: 0; transition: transform 0.18s ease; }
+.workspaces-section.collapsed .ws-chevron,
+.gs-panel.collapsed .ws-chevron { transform: rotate(-90deg); }
+.ws-collapse { display: flex; flex-direction: column; max-height: 38vh; overflow-y: auto; }
+.workspaces-section.collapsed .ws-collapse { display: none; }
+.gs-panel { padding: 4px 12px 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.gs-graph {
+  margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.62rem; line-height: 1.5; color: #c4b5e0;
+  white-space: pre; overflow-x: auto; max-height: 190px; overflow-y: auto;
+}
+.gs-panel.collapsed .gs-graph { display: none; }
+.gs-empty { color: var(--muted); }
 .workspace-tab {
   width: 100%; padding: 7px 10px; background: transparent;
   border: 0; color: var(--muted); font-size: 0.82rem; text-align: left;
@@ -688,9 +708,13 @@ body {
     <!-- populated by JS -->
   </div>
 
-  <div class="workspaces-section" id="workspaces-list">
-    <div class="history-label">Workspaces</div>
+  <div class="workspaces-section collapsed" id="workspaces-list">
+    <button class="ws-toggle" id="ws-toggle" type="button" aria-expanded="false" aria-controls="ws-collapse">
+      <svg class="ws-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      <span>Workspaces</span>
+    </button>
     <input type="file" id="ws-upload-input" multiple style="display:none">
+    <div class="ws-collapse" id="ws-collapse">
     <div class="ws-row">
       <button class="workspace-tab" data-ws="medical">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/></svg>
@@ -790,6 +814,15 @@ body {
       </button>
       <button class="ws-upload-btn" data-ws="quantum" title="Upload to Quantum"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
     </div>
+    </div>
+  </div>
+
+  <div class="gs-panel" id="gs-panel">
+    <button class="gs-head" id="gs-toggle" type="button" aria-expanded="true" aria-controls="gs-graph">
+      <svg class="ws-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      <span>Global State</span>
+    </button>
+    <pre class="gs-graph" id="gs-graph"><span class="gs-empty">Awaiting state&#8230;</span></pre>
   </div>
 
   <div class="sidebar-footer">
@@ -1449,6 +1482,39 @@ Use when Robert asks about quantum mechanics, superposition, entanglement, measu
     if (/^GLOBAL_STATE\b/.test(t)) return true;
     return false;
   }
+  // Render the latest GLOBAL_STATE block as an ASCII bar graph in the sidebar.
+  // Reads the signature text BEFORE it is stripped from the chat bubble, so the
+  // block stays hidden from the transcript while still being visualized.
+  var gsLast = '';
+  function renderGlobalState(text) {
+    var graph = document.getElementById('gs-graph');
+    if (!graph || !text) return;
+    var pairs = [], re = /["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)/g, m;
+    while ((m = re.exec(text))) {
+      if (m[1] === 'GLOBAL_STATE') continue;
+      pairs.push([m[1], parseFloat(m[2])]);
+    }
+    if (!pairs.length) return;
+    var sig = JSON.stringify(pairs);
+    if (sig === gsLast) return;
+    gsLast = sig;
+    var W = 12, maxLabel = 0, i;
+    for (i = 0; i < pairs.length; i++) maxLabel = Math.max(maxLabel, pairs[i][0].length);
+    maxLabel = Math.min(maxLabel, 22);
+    var lines = pairs.map(function (p) {
+      var name = p[0].length > maxLabel ? p[0].slice(0, maxLabel) : p[0];
+      while (name.length < maxLabel) name += ' ';
+      var v = p[1];
+      var frac = (v >= 0 && v <= 1) ? v : Math.min(1, Math.abs(v) / 10);
+      var fill = Math.round(frac * W);
+      if (fill < 0) fill = 0; if (fill > W) fill = W;
+      var bar = '';
+      for (var k = 0; k < W; k++) bar += (k < fill) ? '\u2588' : '\u2591';
+      var val = (v % 1 === 0) ? String(v) : v.toFixed(2);
+      return name + ' \u2502' + bar + '\u2502 ' + val;
+    });
+    graph.textContent = lines.join('\n');
+  }
   function strip(root) {
     // Assistant bubbles only — never the Settings memory panel or prompt textarea.
     var bodies = root.querySelectorAll('.msg-row.bot .md-content');
@@ -1456,12 +1522,16 @@ Use when Robert asks about quantum mechanics, superposition, entanglement, measu
     for (var b = 0; b < bodies.length; b++) {
       var body = bodies[b];
       if (body.closest('#scratchpad-list, .scratchpad-list, #settings-modal')) continue;
+      var lastBody = (b === bodies.length - 1);
       // Remove ONLY trailing signature block(s); stop at the first real content
       // block so the visible reply can never be truncated.
       var guard = 0;
       while (body.lastElementChild && guard++ < 16) {
         var sig = isSignature(body.lastElementChild);
         if (sig === false) break;
+        if (sig === true && lastBody) {
+          try { renderGlobalState(body.lastElementChild.textContent || ''); } catch (e) {}
+        }
         body.removeChild(body.lastElementChild);
       }
     }
@@ -1482,6 +1552,37 @@ Use when Robert asks about quantum mechanics, superposition, entanglement, measu
     obs = new MutationObserver(schedule);
     obs.observe(document.body, { childList: true, subtree: true, characterData: true });
     run();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+<script>
+/* Sidebar collapsible sections (Workspaces, Global State). State persisted in
+   localStorage so it survives reloads. Workspaces defaults collapsed to give the
+   chat history list more room. */
+(function () {
+  function setupCollapse(sectionId, toggleId, key, defaultCollapsed) {
+    var section = document.getElementById(sectionId);
+    var toggle = document.getElementById(toggleId);
+    if (!section || !toggle) return;
+    var saved = null;
+    try { saved = localStorage.getItem(key); } catch (e) {}
+    var collapsed = (saved === null) ? defaultCollapsed : (saved === '1');
+    function apply() {
+      section.classList.toggle('collapsed', collapsed);
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
+    apply();
+    toggle.addEventListener('click', function () {
+      collapsed = !collapsed;
+      try { localStorage.setItem(key, collapsed ? '1' : '0'); } catch (e) {}
+      apply();
+    });
+  }
+  function boot() {
+    setupCollapse('workspaces-list', 'ws-toggle', 'nova-ws-collapsed', true);
+    setupCollapse('gs-panel', 'gs-toggle', 'nova-gs-collapsed', false);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
