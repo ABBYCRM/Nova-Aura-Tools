@@ -3,6 +3,7 @@ import {
   CreateWorkTreeRunBody,
   GetWorkTreeRunParams,
   CancelWorkTreeRunParams,
+  RetryWorkTreeNodeParams,
 } from "@workspace/api-zod";
 
 // DB access is lazy + guarded so a missing/unreachable DATABASE_URL degrades to
@@ -181,6 +182,106 @@ router.post("/work-tree/runs/:id/cancel", async (req, res) => {
   } catch (e) {
     req.log.error({ err: e }, "work-tree cancel run failed");
     res.status(500).json({ error: "failed to cancel run" });
+  }
+});
+
+router.post("/work-tree/nodes/:id/retry", async (req, res) => {
+  const parsed = RetryWorkTreeNodeParams.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid id" });
+    return;
+  }
+  const nodeId = Number(parsed.data.id);
+  const mod = await getDb();
+  if (!mod) {
+    res.status(503).json({ error: "database unavailable" });
+    return;
+  }
+  try {
+    const { eq, and, inArray } = await import("drizzle-orm");
+
+    const [node] = await mod.db
+      .select()
+      .from(mod.workTreeNodesTable)
+      .where(eq(mod.workTreeNodesTable.id, nodeId));
+    if (!node) {
+      res.status(404).json({ error: "node not found" });
+      return;
+    }
+    if (String(node.status) !== "failed") {
+      res.status(409).json({ error: "only failed nodes can be retried" });
+      return;
+    }
+
+    const runId = node.runId as number;
+    const [run] = await mod.db
+      .select()
+      .from(mod.workTreeRunsTable)
+      .where(eq(mod.workTreeRunsTable.id, runId));
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+    if (String(run.status) === "cancelled") {
+      res.status(409).json({ error: "run is cancelled" });
+      return;
+    }
+
+    // Load all nodes so we can walk the parent chain and re-open ancestors.
+    const allNodes = await mod.db
+      .select()
+      .from(mod.workTreeNodesTable)
+      .where(eq(mod.workTreeNodesTable.runId, runId));
+    const byId = new Map<number, Row>(
+      allNodes.map((n) => [n.id as number, n as Row]),
+    );
+
+    // Reset the failed node back to pending so the worker re-executes it. Clear
+    // its prior result/verification but retain the attempts counter for history.
+    await mod.db
+      .update(mod.workTreeNodesTable)
+      .set({ status: "pending", result: "", verification: "" })
+      .where(eq(mod.workTreeNodesTable.id, nodeId));
+
+    // Re-open settled (done/failed) ancestor composites to "running" so
+    // settleComposites re-evaluates them once the retried leaf resolves. They
+    // must NOT go to "pending" — that would trigger a duplicate decomposition.
+    const ancestorIds: number[] = [];
+    let parentId = (node.parentId ?? null) as number | null;
+    while (parentId != null) {
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      if (parent.status === "done" || parent.status === "failed") {
+        ancestorIds.push(parent.id as number);
+      }
+      parentId = (parent.parentId ?? null) as number | null;
+    }
+    if (ancestorIds.length) {
+      await mod.db
+        .update(mod.workTreeNodesTable)
+        .set({ status: "running" })
+        .where(inArray(mod.workTreeNodesTable.id, ancestorIds));
+    }
+
+    // Re-open the run if it had already finished, clearing the stale report.
+    if (run.status === "done" || run.status === "failed") {
+      const [updated] = await mod.db
+        .update(mod.workTreeRunsTable)
+        .set({ status: "running", report: "", error: "" })
+        .where(
+          and(
+            eq(mod.workTreeRunsTable.id, runId),
+            inArray(mod.workTreeRunsTable.status, ["done", "failed"]),
+          ),
+        )
+        .returning();
+      res.json(apiRun((updated ?? run) as Row));
+      return;
+    }
+    res.json(apiRun(run as Row));
+  } catch (e) {
+    req.log.error({ err: e }, "work-tree retry node failed");
+    res.status(500).json({ error: "failed to retry node" });
   }
 });
 

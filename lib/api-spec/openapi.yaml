@@ -105,6 +105,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /work-tree/nodes/{id}/retry:
+    post:
+      operationId: retryWorkTreeNode
+      tags: [work-tree]
+      summary: Retry a failed Work Tree node
+      description: >-
+        Resets a failed node to pending, re-opens its ancestor composites and the
+        run, and clears the run report so the worker re-executes the node.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Run the node belongs to, reopened
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkTreeRun"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Node is not in a retryable (failed) state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:

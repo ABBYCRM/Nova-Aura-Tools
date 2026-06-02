@@ -415,3 +415,74 @@ export const useCancelWorkTreeRun = <TError = ErrorType<ErrorResponse>,
       return useMutation(getCancelWorkTreeRunMutationOptions(options));
     }
 
+export const getRetryWorkTreeNodeUrl = (id: number,) => {
+
+
+
+
+  return `/api/work-tree/nodes/${id}/retry`
+}
+
+/**
+ * Resets a failed node to pending, re-opens its ancestor composites and the run, and clears the run report so the worker re-executes the node.
+ * @summary Retry a failed Work Tree node
+ */
+export const retryWorkTreeNode = async (id: number, options?: RequestInit): Promise<WorkTreeRun> => {
+
+  return customFetch<WorkTreeRun>(getRetryWorkTreeNodeUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetryWorkTreeNodeMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryWorkTreeNode>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryWorkTreeNode>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['retryWorkTreeNode'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryWorkTreeNode>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  retryWorkTreeNode(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryWorkTreeNodeMutationResult = NonNullable<Awaited<ReturnType<typeof retryWorkTreeNode>>>
+
+    export type RetryWorkTreeNodeMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Retry a failed Work Tree node
+ */
+export const useRetryWorkTreeNode = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryWorkTreeNode>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryWorkTreeNode>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRetryWorkTreeNodeMutationOptions(options));
+    }
+

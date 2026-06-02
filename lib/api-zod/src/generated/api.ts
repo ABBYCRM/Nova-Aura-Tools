@@ -104,3 +104,23 @@ export const CancelWorkTreeRunResponse = zod.object({
 })
 
 
+/**
+ * Resets a failed node to pending, re-opens its ancestor composites and the run, and clears the run report so the worker re-executes the node.
+ * @summary Retry a failed Work Tree node
+ */
+export const RetryWorkTreeNodeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RetryWorkTreeNodeResponse = zod.object({
+  "id": zod.number(),
+  "goal": zod.string(),
+  "status": zod.string(),
+  "model": zod.string(),
+  "report": zod.string(),
+  "error": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
