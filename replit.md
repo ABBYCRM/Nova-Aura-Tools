@@ -90,6 +90,7 @@ Nova is a personal AI assistant and autonomous agent system for Robert Matthews.
 - bob.js is a pre-compiled 234KB bundle from the upstream Nova repo — do not hand-edit it; rebuild from source instead
 - SOUL.md §26 governs autonomous operation: set `autonomyEnabled: false` in GOVERNANCE.json as a kill switch
 - SOUL.md §24 requires anti-hallucination verification on every factual autonomous output
+- Work Tree ("Super Nova") API is PIN-gated: `POST /api/work-tree/unlock {pin}` sets a 12h httpOnly cookie; all other `/api/work-tree/*` routes require it (`requireWtAuth` in `artifacts/api-server/src/lib/work-tree-auth.ts`). PIN defaults to `22`, override via `NOVA_WORK_TREE_PIN`. Worker runs dangerous tools when `SUPER_NOVA_EXEC=1`, so the gate is what keeps unauthenticated callers out
 
 ## Pointers
 

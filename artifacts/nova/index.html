@@ -1470,13 +1470,37 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
   }
   function isActive(status) { return ACTIVE.indexOf(String(status)) !== -1; }
 
+  // PIN gate: the Work Tree API is locked. On a 401 we prompt for the PIN,
+  // POST it to /unlock (sets a 12h cookie), then retry the original request.
+  async function unlock() {
+    var p = window.prompt('Enter PIN to unlock Super Nova (stays unlocked 12h):');
+    if (p == null) return false;
+    try {
+      var r = await fetch('/api/work-tree/unlock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: String(p).trim() })
+      });
+      if (!r.ok) { window.alert('Wrong PIN.'); return false; }
+      return true;
+    } catch (_) { return false; }
+  }
+  async function wtFetch(url, opts) {
+    var res = await fetch(url, opts);
+    if (res.status === 401) {
+      var ok = await unlock();
+      if (ok) res = await fetch(url, opts);
+    }
+    return res;
+  }
+
   function overlay() { return document.getElementById('wt-overlay'); }
   function isOpen() { var o = overlay(); return o && !o.hidden; }
 
   async function loadRuns() {
     var box = document.getElementById('wt-runs');
     try {
-      var res = await fetch('/api/work-tree/runs');
+      var res = await wtFetch('/api/work-tree/runs');
       if (!res.ok) throw new Error('http ' + res.status);
       var data = await res.json();
       var runs = (data && data.runs) || [];
@@ -1552,7 +1576,7 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
   async function loadDetail(id) {
     var box = document.getElementById('wt-detail');
     try {
-      var res = await fetch('/api/work-tree/runs/' + id);
+      var res = await wtFetch('/api/work-tree/runs/' + id);
       if (res.status === 404) { box.innerHTML = '<div class="wt-empty ws-muted">Run not found.</div>'; return null; }
       if (!res.ok) throw new Error('http ' + res.status);
       var data = await res.json();
@@ -1609,7 +1633,7 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
     if (!goal) { msg.textContent = 'Enter a goal first.'; return; }
     btn.disabled = true; msg.textContent = 'Submitting…';
     try {
-      var res = await fetch('/api/work-tree/runs', {
+      var res = await wtFetch('/api/work-tree/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ goal: goal })
@@ -1630,14 +1654,14 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
 
   async function cancelRun(id) {
     try {
-      await fetch('/api/work-tree/runs/' + id + '/cancel', { method: 'POST' });
+      await wtFetch('/api/work-tree/runs/' + id + '/cancel', { method: 'POST' });
     } catch (_) {}
     await refresh();
   }
 
   async function retryNode(nodeId) {
     try {
-      await fetch('/api/work-tree/nodes/' + nodeId + '/retry', { method: 'POST' });
+      await wtFetch('/api/work-tree/nodes/' + nodeId + '/retry', { method: 'POST' });
     } catch (_) {}
     await refresh();
   }

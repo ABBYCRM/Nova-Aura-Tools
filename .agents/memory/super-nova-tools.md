@@ -29,6 +29,13 @@ returns `{data:[]}` but v2 returns `{data:{web:[]}}` — parse both shapes.
 
 ## Dangerous tools gate
 `run_python`/`run_node`/`shell`/`write_file`/`read_file` are gated behind
-`SUPER_NOVA_EXEC`. The `/api/work-tree` endpoints are unauthenticated, so turning
-the gate on (full_open) on a public deploy is effectively open RCE — only enable
-it deliberately and add server-side authz before relying on it in production.
+`SUPER_NOVA_EXEC`. With that on (full_open), the worker can run arbitrary code,
+so the HTTP surface that feeds it must be authenticated.
+
+The `/api/work-tree` API is PIN-gated (`work-tree-auth.ts`): `POST
+/work-tree/unlock {pin}` sets an HMAC-signed (SESSION_SECRET) httpOnly cookie
+valid 12h; every other work-tree route requires it via `requireWtAuth`. PIN
+defaults to `22` (override `NOVA_WORK_TREE_PIN`) — weak by Robert's explicit
+choice, so unlock has a per-IP brute-force lockout (8 fails → 10 min). Auth
+fails closed: missing SESSION_SECRET in production refuses to sign/verify (no
+predictable fallback secret).
