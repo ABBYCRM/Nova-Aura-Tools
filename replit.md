@@ -52,7 +52,14 @@ Nova is a personal AI assistant and autonomous agent system for Robert Matthews.
 - Gateway (WebSocket) mode: routes through an external WebSocket gateway — requires it deployed separately (not run by default)
 - Deep worker: background reasoning daemon (`scripts/deep-worker.mjs`) dispatches hard tasks to a separate model (Kimi-K2.6 by default)
 - Scratchpad memory ("lattice fidelity"): cross-conversation continuity. Capture + memory injection happen server-side in the api-server proxy (`bitdeer-proxy.ts`), so they work on any host. Distillation runs in a standalone daemon (`scripts/scratchpad-daemon.mjs`, registered as workflow "Nova: Scratchpad Daemon") on Replit only.
-- Production is deployed on **Render** as web service **`Nova-`** (https://nova-sszi.onrender.com, repo `paisabrazilfl-cpu/Nova-`, branch `replit-sync`, Docker, autoDeploy on). Required service env vars: `BITDEER_API_KEY`, `DATABASE_URL`, `NODE_ENV=production`, `SESSION_SECRET` (without `SESSION_SECRET` the Work Tree PIN gate fails closed with 503). It uses Render-managed Postgres (`nova-db`) via the DB's **internal** connection string as `DATABASE_URL`. **Historical drift:** the earlier service named `nova` (https://nova-sllb.onrender.com) was repointed to a different repo (`omnipost`) and is no longer Nova — do **not** deploy Nova there. The Replit daemon distills the live Render DB via `SCRATCHPAD_DATABASE_URL` (= Render **external** string + `?sslmode=no-verify`); Render's DB IP allowlist must stay open (`0.0.0.0/0`) for the daemon to reach it. See `.agents/memory/render-postgres-connect.md`. Render free Postgres expires ~30 days after creation — upgrade the plan to keep it.
+- Production is deployed on **Render** as web service **`Nova-`** (https://nova-sszi.onrender.com, repo `paisabrazilfl-cpu/Nova-`, branch `FINAL-BUILD-06/052026` (renamed from `replit-sync` — see "Deploy & push workflow" below), Docker, autoDeploy on). Required service env vars: `BITDEER_API_KEY`, `DATABASE_URL`, `NODE_ENV=production`, `SESSION_SECRET` (without `SESSION_SECRET` the Work Tree PIN gate fails closed with 503). It uses Render-managed Postgres (`nova-db`) via the DB's **internal** connection string as `DATABASE_URL`. **Historical drift:** the earlier service named `nova` (https://nova-sllb.onrender.com) was repointed to a different repo (`omnipost`) and is no longer Nova — do **not** deploy Nova there. The Replit daemon distills the live Render DB via `SCRATCHPAD_DATABASE_URL` (= Render **external** string + `?sslmode=no-verify`); Render's DB IP allowlist must stay open (`0.0.0.0/0`) for the daemon to reach it. See `.agents/memory/render-postgres-connect.md`. Render free Postgres expires ~30 days after creation — upgrade the plan to keep it.
+
+## Deploy & push workflow (authoritative — Robert's rule)
+
+- **Branch naming:** every push goes to a branch whose name encodes the date and what changed (e.g. `FINAL-BUILD-06/052026`). That branch must always hold the full latest project with no loss of function.
+- **Render deploy branch:** the live Render `Nova-` service deploys from whatever single branch is configured on it. `replit-sync` was renamed to `FINAL-BUILD-06/052026`. When a new dated branch becomes canonical, repoint Render (`PATCH /v1/services/{id}` with `{"branch":"…"}`), then trigger and poll a deploy to `live` — a missing/stale configured branch silently stops autoDeploy (push lands on GitHub but prod never updates).
+- **Push procedure:** push `main` HEAD → the dated branch on GitHub using the token-in-URL form (redact the token in logs), then ensure Render deploys it and reaches `live`, then confirm the live site.
+- **Self-sufficiency:** do not ask Robert to fix things that can be fixed here — self-reflect ("can I fix this?") and if so, just do it.
 
 ## Product
 
@@ -63,6 +70,7 @@ Nova is a personal AI assistant and autonomous agent system for Robert Matthews.
 - **Autonomous heartbeat**: Cron-driven self-management loop that polls tasks, patches bugs, reports status
 - **Anti-hallucination**: Deterministic verifier gates every factual claim before it's sent
 - **Scratchpad memory**: Cross-conversation continuity. Every turn is captured; a daemon distills each conversation into `{category, title, summary, keyFacts}` and a capped digest is injected into future chats. Viewable in Settings → "Scratch pad", grouped by category (identity/health/esoteric/manifestation/quantum/tasks/general)
+- **Ambient background ("the lady")**: a low-opacity Nova portrait (`artifacts/nova/public/assets/nova-bg.png`) sits fixed behind the chat via `#nova-bg` (z-index −1, `pointer-events:none`, ~0.18 opacity + a left-to-right dark scrim) so content always stays readable on top
 
 ## Nova persona (authoritative — do not alter)
 
@@ -82,6 +90,7 @@ Nova is a personal AI assistant and autonomous agent system for Robert Matthews.
 - Robert Matthews is the sole authorized principal
 - Direct answers, fast execution, zero theater
 - No emoji in chat, no theatrical preambles, no "next steps" prompts
+- Self-reflect before asking: never ask Robert to fix something the agent can do itself — ask "can I fix this?" and if so, just fix it
 
 ## Gotchas
 
