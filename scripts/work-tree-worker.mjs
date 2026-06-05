@@ -30,6 +30,12 @@ import {
   runTool,
   toolsEnabledDangerous,
 } from "./super-nova-tools.mjs";
+import {
+  chatComplete,
+  resolveRole,
+  ROLES,
+  routerSummary,
+} from "./super-nova-router.mjs";
 
 const { Pool } = pg;
 
@@ -61,8 +67,15 @@ if (!DATABASE_URL) {
   console.error("work-tree-worker: FATAL — DATABASE_URL missing");
   process.exit(78);
 }
-if (!BITDEER_KEY) {
-  console.error("work-tree-worker: FATAL — BITDEER_API_KEY missing");
+// Only require a Bitdeer key when a role actually resolves to the bitdeer
+// provider. This lets every role be pointed at OpenAI/OpenRouter/a self-hosted
+// endpoint via env without a Bitdeer key, while keeping the default config
+// (all roles → bitdeer) fail-fast if the key is missing.
+const bitdeerNeeded = ROLES.some((r) => resolveRole(r).providerName === "bitdeer");
+if (bitdeerNeeded && !BITDEER_KEY) {
+  console.error(
+    "work-tree-worker: FATAL — BITDEER_API_KEY missing (a role routes to bitdeer)",
+  );
   process.exit(78);
 }
 
@@ -91,6 +104,8 @@ function serializeTrace(trace) {
   let arr = trace.map((t) => ({
     attempt: t.attempt,
     step: t.step,
+    stage: t.stage,
+    role: t.role,
     tool: t.tool,
     ok: t.ok,
     args: clipArgs(t.args),
@@ -161,44 +176,30 @@ async function incrementRunsToday() {
   );
 }
 
+// All model access goes through the Super Nova v2 router, which resolves the
+// logical role (planner/executor/critic/researcher) to a provider+model and
+// injects the role's persona. `model` (the run's chosen model) is honored for
+// the default bitdeer provider; a role pointed at another provider uses its own
+// configured model. See scripts/super-nova-router.mjs.
 async function chatCompletion({
   messages,
   maxTokens = 1500,
   temperature = 0.3,
   model,
+  role = "planner",
 }) {
-  const body = {
-    model: model || DEFAULT_MODEL,
-    messages,
-    max_tokens: maxTokens,
-    temperature,
-    stream: false,
-  };
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 120_000);
-  try {
-    const res = await fetch(`${BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${BITDEER_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${t.slice(0, 300)}`);
-    }
-    const j = await res.json();
-    return j.choices?.[0]?.message?.content || "";
-  } finally {
-    clearTimeout(timer);
-  }
+  return chatComplete({ role, messages, model, maxTokens, temperature });
 }
 
 // Single-shot system+user convenience (decompose/verify/synthesize use this).
-async function callLLM({ system, user, maxTokens = 1500, temperature = 0.3, model }) {
+async function callLLM({
+  system,
+  user,
+  maxTokens = 1500,
+  temperature = 0.3,
+  model,
+  role = "planner",
+}) {
   return chatCompletion({
     messages: [
       { role: "system", content: system },
@@ -207,6 +208,7 @@ async function callLLM({ system, user, maxTokens = 1500, temperature = 0.3, mode
     maxTokens,
     temperature,
     model,
+    role,
   });
 }
 
@@ -447,12 +449,26 @@ async function decompose(run, nodes, node) {
   return { expanded: true };
 }
 
+// Pick the collaborating role for a terminal node. Information-gathering leaves
+// run as the RESEARCHER (source-first framing); everything else as the EXECUTOR.
+function roleForNode(node) {
+  const t = `${node.title || ""} ${node.detail || ""}`.toLowerCase();
+  if (
+    /\b(research|investigate|find out|gather|search|look up|sources?|cite|references?|survey|literature|identify|compare|benchmark)\b/.test(
+      t,
+    )
+  ) {
+    return "researcher";
+  }
+  return "executor";
+}
+
 // Execute one terminal node as a bounded ReAct tool-use loop. The model either
 // calls a tool ({tool,args}) — whose result is fed back — or returns the final
 // deliverable ({final}). Returns { result, trace } where trace records every
 // tool call made (for the UI). Falls back to plain text if the model never
-// emits valid protocol JSON.
-async function executeTerminal(run, nodes, node, priorIssues) {
+// emits valid protocol JSON. `role` selects the persona (executor/researcher).
+async function executeTerminal(run, nodes, node, priorIssues, role = "executor") {
   const dangerous = toolsEnabledDangerous();
   const catalog = toolCatalogText(dangerous);
   const system =
@@ -492,6 +508,7 @@ async function executeTerminal(run, nodes, node, priorIssues) {
       model: run.model,
       maxTokens: 2000,
       temperature: 0.4,
+      role,
     });
     const obj = parseAgentJson(raw);
     if (!obj) {
@@ -512,6 +529,8 @@ async function executeTerminal(run, nodes, node, priorIssues) {
       const exec = await runTool(String(obj.tool), obj.args || {}, ctx);
       trace.push({
         step: step + 1,
+        stage: "execute",
+        role,
         tool: String(obj.tool),
         args: obj.args || {},
         ok: !(exec && exec.error),
@@ -544,6 +563,7 @@ async function executeTerminal(run, nodes, node, priorIssues) {
     model: run.model,
     maxTokens: 2000,
     temperature: 0.4,
+    role,
   });
   const obj = parseAgentJson(raw);
   const result =
@@ -571,6 +591,7 @@ async function verify(run, node, result) {
     model: run.model,
     maxTokens: 500,
     temperature: 0,
+    role: "critic",
   });
   try {
     const obj = extractJson(raw);
@@ -597,8 +618,9 @@ async function runTerminal(run, nodes, node) {
   let verification = "";
   let passed = false;
   let trace = [];
+  const role = roleForNode(node);
   for (let attempt = 0; attempt <= MAX_CORRECTIONS; attempt++) {
-    const ex = await executeTerminal(run, nodes, node, issues);
+    const ex = await executeTerminal(run, nodes, node, issues, role);
     result = ex.result;
     if (ex.trace && ex.trace.length) {
       trace = trace.concat(
@@ -823,6 +845,7 @@ console.log(
   `work-tree-worker: ready — model ${DEFAULT_MODEL}, poll ${POLL_MS}ms, ` +
     `budget ${STEP_BUDGET}, maxDepth ${MAX_DEPTH}, maxNodes ${MAX_NODES}`,
 );
+console.log(`work-tree-worker: roles — ${routerSummary()}`);
 await tick();
 const interval = setInterval(() => tick(), POLL_MS);
 

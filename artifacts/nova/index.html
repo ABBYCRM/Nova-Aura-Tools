@@ -64,11 +64,11 @@ body {
   position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image: url("/assets/nova-bg.png");
   background-size: cover; background-position: center right;
-  opacity: 0.18;
+  opacity: 0.42;
 }
 #nova-bg::after {
   content: ""; position: absolute; inset: 0;
-  background: linear-gradient(90deg, rgba(6,7,13,0.85) 0%, rgba(6,7,13,0.45) 42%, rgba(6,7,13,0.18) 100%);
+  background: linear-gradient(90deg, rgba(6,7,13,0.78) 0%, rgba(6,7,13,0.30) 45%, rgba(6,7,13,0.04) 100%);
 }
 
 /* ── Scrollbar ──────────────────────────────────────────────────────────── */
@@ -1483,6 +1483,9 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
   }
   .wt-spin { display:inline-block; width:11px; height:11px; border:2px solid rgba(34,211,238,0.3); border-top-color:var(--accent2); border-radius:50%; animation:wt-rot 0.7s linear infinite; }
   @keyframes wt-rot { to { transform:rotate(360deg); } }
+  .wt-tool-role { display:inline-block; margin-right:6px; padding:1px 6px; border-radius:6px;
+    font-size:10px; font-weight:600; letter-spacing:0.02em; text-transform:uppercase;
+    color:var(--accent2); background:rgba(34,211,238,0.12); border:1px solid rgba(34,211,238,0.28); }
 </style>
 <script>
 // Work Tree planner — self-contained. Lets Robert submit a goal, watches NOVA
@@ -1569,7 +1572,8 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
       } catch (_) {}
       var cls = (s && s.ok === false) ? ' bad' : '';
       var res = esc(String((s && s.result) || '').slice(0, 220));
-      return '<div class="wt-tool' + cls + '"><span class="wt-tool-name">' +
+      var role = (s && s.role) ? '<span class="wt-tool-role">' + esc(String(s.role)) + '</span>' : '';
+      return '<div class="wt-tool' + cls + '">' + role + '<span class="wt-tool-name">' +
         esc(String((s && s.tool) || '?')) + '</span>' + args +
         (res ? '<div class="wt-tool-res">' + res + '</div>' : '') + '</div>';
     }).join('');
