@@ -9,8 +9,8 @@ import {
 
 const router = Router();
 
-const BITDEER_BASE = "https://api-inference.bitdeer.ai";
-const API_KEY = process.env.BITDEER_API_KEY ?? "";
+const OPENAI_BASE = "https://api.openai.com";
+const API_KEY = process.env.OPENAI_API_KEY ?? "";
 
 const MEMORY_HEADER =
   "Continuity memory — things you already know about Robert from past conversations. " +
@@ -37,11 +37,12 @@ function extractDeltas(buffer: string): { text: string; rest: string } {
   return { text, rest };
 }
 
-// Streaming proxy — mounted on the router at /api, so
-// req.path within this router is e.g. /v1/chat/completions
+// Streaming proxy — mounted on the router at /api, so req.path within this router
+// is e.g. /v1/chat/completions or /v1/audio/speech. Forwards everything under
+// /v1/* to OpenAI with the server-side key, so the key never reaches the browser.
 router.all("/v1/*splat", async (req, res) => {
   const qs = req.url.slice(req.path.length);
-  const upstreamUrl = `${BITDEER_BASE}${req.path}${qs}`;
+  const upstreamUrl = `${OPENAI_BASE}${req.path}${qs}`;
 
   const isChat =
     req.method === "POST" &&
@@ -141,11 +142,11 @@ router.all("/v1/*splat", async (req, res) => {
       }
     };
     pump().catch((e) => {
-      req.log.error({ err: e }, "bitdeer-proxy stream error");
+      req.log.error({ err: e }, "openai-proxy stream error");
       res.end();
     });
   } catch (e) {
-    req.log.error({ err: e }, "bitdeer-proxy fetch error");
+    req.log.error({ err: e }, "openai-proxy fetch error");
     if (!res.headersSent) res.status(502).json({ error: "upstream unreachable" });
   }
 });

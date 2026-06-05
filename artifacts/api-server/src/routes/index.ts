@@ -3,7 +3,7 @@ import healthRouter from "./health";
 import novaConfigRouter from "./nova-config";
 import scratchpadRouter from "./scratchpad";
 import workTreeRouter from "./work-tree";
-import bitdeerProxyRouter from "./bitdeer-proxy";
+import openaiProxyRouter from "./openai-proxy";
 
 const router: IRouter = Router();
 
@@ -11,6 +11,6 @@ router.use(healthRouter);
 router.use(novaConfigRouter);
 router.use(scratchpadRouter);
 router.use(workTreeRouter);
-router.use(bitdeerProxyRouter);
+router.use(openaiProxyRouter);
 
 export default router;

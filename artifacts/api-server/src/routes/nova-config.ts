@@ -2,11 +2,13 @@ import { Router } from "express";
 
 const router = Router();
 
-router.get("/nova-config", (req, res) => {
-  const apiKey = process.env.BITDEER_API_KEY ?? "";
+// The chat UI sends requests to the server-side proxy at /api/v1, which injects
+// the real OPENAI_API_KEY. The browser only needs a non-empty placeholder token
+// so bob.js will send the request — the real key never leaves the server.
+router.get("/nova-config", (_req, res) => {
   res.json({
-    apiKey,
-    baseUrl: "/api-proxy/v1",
+    apiKey: "proxy",
+    baseUrl: "/api/v1",
   });
 });
 

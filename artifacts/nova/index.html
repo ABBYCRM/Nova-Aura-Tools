@@ -956,43 +956,21 @@ body {
       </button>
     </div>
 
-    <div class="form-group">
-      <label class="form-label">API Key (Bitdeer)</label>
-      <input class="form-input" id="s-api-key" type="password" placeholder="sk-…">
+    <div class="form-group" style="display:none">
+      <label class="form-label">API Key</label>
+      <input class="form-input" id="s-api-key" type="password" placeholder="proxy">
     </div>
 
-    <div class="form-group">
+    <div class="form-group" style="display:none">
       <label class="form-label">Base URL</label>
-      <input class="form-input" id="s-base-url" type="text" placeholder="https://api-inference.bitdeer.ai/v1">
+      <input class="form-input" id="s-base-url" type="text" placeholder="/api/v1">
     </div>
 
-    <div class="form-group">
+    <div class="form-group" style="display:none">
       <label class="form-label">Model</label>
       <select class="form-input" id="s-model">
-        <option value="XiaomiMiMo/MiMo-V2-Flash">XiaomiMiMo/MiMo-V2-Flash ★ (fastest)</option>
-        <option value="ByteDance-Seed/Seed-1.6-Flash">ByteDance-Seed/Seed-1.6-Flash (fast)</option>
-        <option value="Qwen/Qwen3-Next-80B-A3B-Instruct">Qwen/Qwen3-Next-80B-A3B-Instruct (fast)</option>
-        <option value="mistralai/Mistral-Large-3-675B-Instruct-2512">mistralai/Mistral-Large-3-675B-Instruct-2512 (heavy / slower)</option>
-        <option value="MiniMaxAI/MiniMax-M2.5">MiniMaxAI/MiniMax-M2.5</option>
-        <option value="moonshotai/Kimi-K2.6">moonshotai/Kimi-K2.6</option>
-        <option value="deepseek-ai/DeepSeek-V4-Pro">deepseek-ai/DeepSeek-V4-Pro</option>
-        <option value="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B">nvidia/NVIDIA-Nemotron-3-Super-120B-A12B</option>
-        <option value="Qwen/Qwen3.5-397B-A17B">Qwen/Qwen3.5-397B-A17B</option>
-        <option value="Qwen/Qwen3-235B-A22B (2507)">Qwen/Qwen3-235B-A22B (2507)</option>
-        <option value="Qwen/Qwen3-Max">Qwen/Qwen3-Max</option>
-        <option value="Qwen/Qwen3-Coder-Plus">Qwen/Qwen3-Coder-Plus</option>
-        <option value="deepseek-ai/DeepSeek-R1-0528">deepseek-ai/DeepSeek-R1-0528</option>
-        <option value="deepseek-ai/DeepSeek-V3.2">deepseek-ai/DeepSeek-V3.2</option>
-        <option value="ByteDance-Seed/Seed-1.6">ByteDance-Seed/Seed-1.6</option>
-        <option value="mistralai/Mistral-Small-4-119B-2603">mistralai/Mistral-Small-4-119B-2603</option>
-        <option value="zai-org/GLM-5.1">zai-org/GLM-5.1</option>
-        <option value="XiaomiMiMo/MiMo-V2.5-Pro">XiaomiMiMo/MiMo-V2.5-Pro</option>
-        <option value="MiniMaxAI/MiniMax-M2.1">MiniMaxAI/MiniMax-M2.1</option>
-        <option value="MiniMaxAI/MiniMax-M1">MiniMaxAI/MiniMax-M1</option>
-        <option value="baidu/ERNIE-4.5-300B-A47B">baidu/ERNIE-4.5-300B-A47B</option>
-        <option value="meta-llama/Llama-4-Scout-17B-16E-Instruct">meta-llama/Llama-4-Scout-17B-16E-Instruct</option>
-        <option value="google/gemma-4-31B-it">google/gemma-4-31B-it</option>
-        <option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option>
+        <option value="gpt-4o">gpt-4o</option>
+        <option value="gpt-4o-mini">gpt-4o-mini</option>
       </select>
     </div>
 
@@ -1026,10 +1004,10 @@ body {
       </select>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" style="display:none">
       <label class="form-label">OpenAI API Key — human neural voice (optional)</label>
-      <input class="form-input" id="s-openai-key" type="password" placeholder="sk-... — unlocks the soft, human 'shimmer' voice">
-      <div class="ws-tiny ws-muted" style="margin-top:4px">Leave blank to use the browser voice. Paste an OpenAI key (platform.openai.com) and Nova speaks in a real, sweet neural voice. The page reloads once to apply.</div>
+      <input class="form-input" id="s-openai-key" type="password" placeholder="sk-...">
+      <div class="ws-tiny ws-muted" style="margin-top:4px">Neural voice is built in and on by default.</div>
     </div>
 
     <div class="form-group">
@@ -1125,7 +1103,7 @@ body {
     </div>
     <p class="ws-muted ws-tiny">
       <b>Honest disclaimer:</b> this password gate is a client-side soft lock. Storing medical records here is NOT
-      HIPAA-compliant — model calls route through Bitdeer (no BAA), the volume is not customer-encrypted, and there
+      HIPAA-compliant — model calls route through OpenAI (no BAA), the volume is not customer-encrypted, and there
       is no audit trail. Use it for personal organization, not regulated PHI.
     </p>
   </div>
@@ -1255,22 +1233,19 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
   let s = {};
   try { s = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (_) {}
   let changed = false;
-  if (!s.baseUrl || s.baseUrl === '/api-proxy/v1' || s.baseUrl === 'https://api-inference.bitdeer.ai/v1') {
-    s.baseUrl = '/api/v1'; changed = true;
-  }
-  const staleModels = ['mistralai/Mistral-Large-3-675B', ''];
-  if (!s.model || staleModels.includes(s.model)) { s.model = 'XiaomiMiMo/MiMo-V2-Flash'; changed = true; }
-  // One-time speed migration: move anyone still on a heavy model (incl. the
-  // full-id 675B default the old staleModels check missed) onto the fast Flash
-  // model. Guarded so a deliberate later choice in Settings sticks.
-  if (!s.speedMigration) {
-    const heavyModels = [
-      'mistralai/Mistral-Large-3-675B-Instruct-2512',
-      'mistralai/Mistral-Large-3-675B'
-    ];
-    if (heavyModels.includes(s.model)) { s.model = 'XiaomiMiMo/MiMo-V2-Flash'; changed = true; }
-    s.speedMigration = true; changed = true;
-  }
+  // Hardwired to OpenAI. Chat and neural voice both route through the server
+  // proxy at /api/v1, which injects the server-side OPENAI_API_KEY — no key ever
+  // lives in the browser. baseUrl/model are forced here; the Bitdeer settings
+  // fields are hidden in the modal.
+  if (s.baseUrl !== '/api/v1') { s.baseUrl = '/api/v1'; changed = true; }
+  if (!s.model || s.model.indexOf('gpt') !== 0) { s.model = 'gpt-4o'; changed = true; }
+  // Non-empty placeholder so bob.js sendDirect() fires; the proxy ignores it and
+  // uses the server key.
+  if (!s.apiKey || s.apiKey.indexOf('{env:') !== -1) { s.apiKey = 'proxy'; changed = true; }
+  // Neural voice on by default: bob.js uses OpenAI TTS whenever openaiKey is set
+  // and is not an {env:...} placeholder. The fetch shim routes that call to the
+  // proxy, so a plain 'proxy' token is enough — the real key stays server-side.
+  if (!s.openaiKey || s.openaiKey === '{env:OPENAI_API_KEY}' || s.openaiKey.indexOf('{env:') !== -1) { s.openaiKey = 'proxy'; changed = true; }
   // One-time voice migration: softer, more natural cadence + sweetest neural
   // voice (the latter applies when an OpenAI TTS key is configured).
   if (!s.voiceMigration) {
@@ -1306,6 +1281,28 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
 })();
 </script>
 <script>
+// Proxy shim — bob.js hardcodes the OpenAI TTS endpoint (api.openai.com). Rewrite
+// any direct OpenAI call to the same-origin server proxy at /api/v1, which injects
+// the server-side OPENAI_API_KEY. This keeps the key entirely out of the browser.
+(function () {
+  if (window.__openaiProxyPatched) return;
+  window.__openaiProxyPatched = true;
+  var orig = window.fetch.bind(window);
+  var PREFIX = 'https://api.openai.com';
+  window.fetch = function (input, init) {
+    try {
+      var url = typeof input === 'string' ? input : (input && input.url);
+      if (url && url.indexOf(PREFIX + '/') === 0) {
+        var rewritten = '/api' + url.slice(PREFIX.length);
+        if (typeof input === 'string') input = rewritten;
+        else input = new Request(rewritten, input);
+      }
+    } catch (_) {}
+    return orig(input, init);
+  };
+})();
+</script>
+<script>
 // OpenAI TTS key wiring — bob.js has no field for settings.openaiKey, so we add
 // one here and persist it without touching the compiled bundle. The save handler
 // runs after bob.js's own save via setTimeout(0), then reloads so loadSettings
@@ -1313,7 +1310,7 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
 (function () {
   var LS = 'bob-settings';
   function read() { try { return JSON.parse(localStorage.getItem(LS) || '{}'); } catch (_) { return {}; } }
-  function realKey(k) { return (k && k.indexOf('{env:') === -1) ? k : ''; }
+  function realKey(k) { return (k && k !== 'proxy' && k.indexOf('{env:') === -1) ? k : ''; }
   var field = document.getElementById('s-openai-key');
   if (!field) return;
   var settingsBtnEl = document.getElementById('settings-btn');
@@ -1326,7 +1323,7 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
     setTimeout(function () {
       var s = read();
       var prev = realKey(s.openaiKey);
-      s.openaiKey = entered || '{env:OPENAI_API_KEY}';
+      s.openaiKey = entered || 'proxy';
       if (entered && !realKey(s.ttsVoice)) s.ttsVoice = 'shimmer';
       localStorage.setItem(LS, JSON.stringify(s));
       if (entered !== prev) location.reload();
