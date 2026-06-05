@@ -1320,25 +1320,26 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
 <style>
   .sp-header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .sp-refresh {
-    background:rgba(255,255,255,0.06); color:#cbd5e1; border:1px solid rgba(255,255,255,0.12);
+    background:var(--surface2); color:var(--text); border:1px solid var(--border);
     border-radius:6px; padding:3px 10px; font-size:12px; cursor:pointer;
+    transition:background 0.12s, border-color 0.12s, color 0.12s;
   }
-  .sp-refresh:hover { background:rgba(255,255,255,0.12); }
+  .sp-refresh:hover { background:var(--accent-dim); border-color:rgba(139,92,246,0.45); color:var(--text); }
   .scratchpad-list { max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:14px; }
   .sp-group { display:flex; flex-direction:column; gap:8px; }
   .sp-cat {
     font-size:11px; letter-spacing:0.08em; text-transform:uppercase; font-weight:600;
-    color:#7dd3fc; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:4px;
+    color:var(--accent2); border-bottom:1px solid var(--border); padding-bottom:4px;
   }
   .sp-entry {
-    background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07);
+    background:var(--surface2); border:1px solid var(--border);
     border-radius:8px; padding:9px 11px;
   }
   .sp-entry-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
-  .sp-title { font-size:13px; font-weight:600; color:#e2e8f0; }
-  .sp-summary { font-size:12.5px; color:#cbd5e1; margin-top:4px; line-height:1.45; }
-  .sp-facts { font-size:11.5px; color:#94a3b8; margin-top:6px; line-height:1.5; }
-  .sp-meta { font-size:10.5px; color:#64748b; margin-top:6px; }
+  .sp-title { font-size:13px; font-weight:600; color:var(--text); }
+  .sp-summary { font-size:12.5px; color:var(--text); margin-top:4px; line-height:1.45; }
+  .sp-facts { font-size:11.5px; color:var(--muted); margin-top:6px; line-height:1.5; }
+  .sp-meta { font-size:10.5px; color:var(--muted); margin-top:6px; }
 </style>
 <script>
 // Scratch pad viewer — fetches distilled cross-conversation memory grouped by
@@ -1391,75 +1392,79 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
   .wt-panel { display:flex; flex-direction:column; }
   .wt-body { display:flex; flex:1; min-height:0; gap:0; }
   .wt-left {
-    width:300px; min-width:300px; border-right:1px solid rgba(255,255,255,0.08);
+    width:300px; min-width:300px; border-right:1px solid var(--border);
     display:flex; flex-direction:column; min-height:0;
   }
-  .wt-compose { padding:14px 16px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; gap:8px; }
+  .wt-compose { padding:14px 16px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
   .wt-compose textarea { resize:vertical; }
   #wt-start-btn {
-    background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none;
+    background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; border:none;
     border-radius:8px; padding:9px 14px; font-size:13px; font-weight:600; cursor:pointer;
+    box-shadow:0 6px 18px -6px var(--glow); transition:filter 0.12s, box-shadow 0.12s;
   }
-  #wt-start-btn:hover { filter:brightness(1.08); }
-  #wt-start-btn:disabled { opacity:0.55; cursor:default; }
+  #wt-start-btn:hover { filter:brightness(1.08); box-shadow:0 8px 24px -8px var(--glow); }
+  #wt-start-btn:disabled { opacity:0.55; cursor:default; box-shadow:none; }
   .wt-runs-label {
     font-size:11px; letter-spacing:0.08em; text-transform:uppercase; font-weight:600;
-    color:#94a3b8; padding:12px 16px 6px;
+    color:var(--muted); padding:12px 16px 6px;
   }
   .wt-runs { overflow-y:auto; flex:1; padding:0 10px 12px; display:flex; flex-direction:column; gap:6px; }
   .wt-run {
-    background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07);
+    background:var(--surface2); border:1px solid var(--border);
     border-radius:8px; padding:9px 11px; cursor:pointer; text-align:left;
+    transition:background 0.12s, border-color 0.12s;
   }
-  .wt-run:hover { background:rgba(255,255,255,0.06); }
-  .wt-run.active { border-color:#8b5cf6; background:rgba(139,92,246,0.12); }
-  .wt-run-goal { font-size:12.5px; color:#e2e8f0; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .wt-run-meta { font-size:10.5px; color:#64748b; margin-top:5px; display:flex; align-items:center; gap:7px; }
+  .wt-run:hover { background:var(--accent-dim); border-color:rgba(139,92,246,0.35); }
+  .wt-run.active { border-color:var(--accent); background:var(--accent-dim); }
+  .wt-run-goal { font-size:12.5px; color:var(--text); line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .wt-run-meta { font-size:10.5px; color:var(--muted); margin-top:5px; display:flex; align-items:center; gap:7px; }
   .wt-right { flex:1; min-width:0; overflow-y:auto; padding:18px 20px; }
-  .wt-empty { display:flex; height:100%; align-items:center; justify-content:center; font-size:13px; }
+  .wt-empty { display:flex; height:100%; align-items:center; justify-content:center; font-size:13px; color:var(--muted); }
   .wt-badge {
     display:inline-block; font-size:10px; letter-spacing:0.04em; text-transform:uppercase;
     font-weight:600; border-radius:999px; padding:2px 8px;
   }
-  .wt-st-pending { background:rgba(148,163,184,0.18); color:#cbd5e1; }
-  .wt-st-running { background:rgba(96,165,250,0.2); color:#93c5fd; }
-  .wt-st-done { background:rgba(52,211,153,0.18); color:#6ee7b7; }
-  .wt-st-failed { background:rgba(248,113,113,0.18); color:#fca5a5; }
-  .wt-st-cancelled { background:rgba(148,163,184,0.14); color:#94a3b8; }
+  .wt-st-pending { background:rgba(138,144,168,0.18); color:var(--muted); }
+  .wt-st-running { background:rgba(34,211,238,0.16); color:var(--accent2); }
+  .wt-st-done { background:rgba(34,197,94,0.18); color:#6ee7b7; }
+  .wt-st-failed { background:rgba(239,68,68,0.18); color:#fca5a5; }
+  .wt-st-cancelled { background:rgba(138,144,168,0.14); color:var(--muted); }
   .wt-detail-head { display:flex; align-items:flex-start; gap:12px; justify-content:space-between; margin-bottom:6px; }
-  .wt-detail-goal { font-size:15px; font-weight:600; color:#f1f5f9; line-height:1.4; }
-  .wt-detail-sub { font-size:11px; color:#64748b; margin-bottom:14px; }
+  .wt-detail-goal { font-size:15px; font-weight:600; color:var(--text); line-height:1.4; }
+  .wt-detail-sub { font-size:11px; color:var(--muted); margin-bottom:14px; }
   #wt-cancel-btn {
-    background:rgba(248,113,113,0.12); color:#fca5a5; border:1px solid rgba(248,113,113,0.3);
+    background:rgba(239,68,68,0.12); color:#fca5a5; border:1px solid rgba(239,68,68,0.3);
     border-radius:7px; padding:5px 11px; font-size:12px; cursor:pointer; white-space:nowrap;
+    transition:background 0.12s;
   }
-  #wt-cancel-btn:hover { background:rgba(248,113,113,0.2); }
+  #wt-cancel-btn:hover { background:rgba(239,68,68,0.2); }
   .wt-section-title {
     font-size:11px; letter-spacing:0.08em; text-transform:uppercase; font-weight:600;
-    color:#7dd3fc; margin:18px 0 10px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:5px;
+    color:var(--accent2); margin:18px 0 10px; border-bottom:1px solid var(--border); padding-bottom:5px;
   }
   .wt-node {
-    border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:9px 11px;
-    margin-bottom:7px; background:rgba(255,255,255,0.02);
+    border:1px solid var(--border); border-radius:8px; padding:9px 11px;
+    margin-bottom:7px; background:var(--surface2);
   }
   .wt-node-head { display:flex; align-items:center; gap:8px; cursor:pointer; }
-  .wt-node-title { font-size:13px; color:#e2e8f0; flex:1; }
-  .wt-node-kind { font-size:10px; color:#64748b; }
-  .wt-node-body { margin-top:8px; padding-top:8px; border-top:1px dashed rgba(255,255,255,0.08); display:none; }
+  .wt-node-title { font-size:13px; color:var(--text); flex:1; }
+  .wt-node-kind { font-size:10px; color:var(--muted); }
+  .wt-node-body { margin-top:8px; padding-top:8px; border-top:1px dashed var(--border-strong); display:none; }
   .wt-node.open .wt-node-body { display:block; }
-  .wt-node-detail { font-size:12px; color:#94a3b8; line-height:1.5; margin-bottom:6px; }
-  .wt-node-result { font-size:12.5px; color:#cbd5e1; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
-  .wt-node-verify { font-size:11px; color:#7dd3fc; margin-top:7px; }
+  .wt-node-detail { font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:6px; }
+  .wt-node-result { font-size:12.5px; color:var(--text); line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+  .wt-node-verify { font-size:11px; color:var(--accent2); margin-top:7px; }
   .wt-node-verify.bad { color:#fca5a5; }
   .wt-retry-btn { margin-top:9px; font-size:11.5px; padding:4px 11px; border-radius:7px;
-    background:rgba(248,113,113,0.12); color:#fca5a5; border:1px solid rgba(248,113,113,0.35); cursor:pointer; }
-  .wt-retry-btn:hover { background:rgba(248,113,113,0.2); }
+    background:rgba(239,68,68,0.12); color:#fca5a5; border:1px solid rgba(239,68,68,0.35); cursor:pointer;
+    transition:background 0.12s; }
+  .wt-retry-btn:hover { background:rgba(239,68,68,0.2); }
   .wt-report {
-    background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);
-    border-radius:10px; padding:14px 16px; font-size:13px; color:#e2e8f0;
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:10px; padding:14px 16px; font-size:13px; color:var(--text);
     line-height:1.6; white-space:pre-wrap; word-break:break-word;
   }
-  .wt-spin { display:inline-block; width:11px; height:11px; border:2px solid rgba(147,197,253,0.3); border-top-color:#93c5fd; border-radius:50%; animation:wt-rot 0.7s linear infinite; }
+  .wt-spin { display:inline-block; width:11px; height:11px; border:2px solid rgba(34,211,238,0.3); border-top-color:var(--accent2); border-radius:50%; animation:wt-rot 0.7s linear infinite; }
   @keyframes wt-rot { to { transform:rotate(360deg); } }
 </style>
 <script>
