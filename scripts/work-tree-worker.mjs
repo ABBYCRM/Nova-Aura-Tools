@@ -82,19 +82,144 @@ function runAudit(runId) {
 // DESTRUCTIVE additionally requires SUPER_NOVA_ALLOW_DESTRUCTIVE=1. This maps
 // the spec's RiskLevel enum onto the existing tool catalog.
 const TOOL_RISK = {
-  web_search: "low",
-  search_knowledge: "low",
-  generate_image: "low",
-  read_file: "medium",
-  list_dir: "low",
-  write_file: "high",
-  patch_file: "high",
-  run_code: "high",
-  run_shell: "destructive",
-  delete_file: "destructive",
-  fetch_url: "medium",
-  create_file: "high",
-  move_file: "high",
+  // ── Network (SSRF-guarded) ────────────────────────────────────────────────
+  http_fetch:            "medium",
+  web_fetch:             "medium",
+  browser_fetch:         "medium",
+  web_search:            "low",
+  search_web:            "low",
+  google:                "medium",
+  x_search:              "medium",
+  read_website:          "medium",
+  fetch_url:             "medium",   // legacy
+
+  // ── Image / media ─────────────────────────────────────────────────────────
+  image_generate:        "medium",
+  generate_image:        "medium",
+  music_generate:        "medium",
+  video_generate:        "medium",
+  tts:                   "medium",
+  image:                 "medium",
+  canvas:                "medium",
+
+  // ── Calculator ────────────────────────────────────────────────────────────
+  calculator:            "low",
+
+  // ── Filesystem — read-only (sandbox) ─────────────────────────────────────
+  read:                  "low",
+  read_file:             "low",
+  open_file:             "low",
+  list_directory:        "low",
+  list_folder:           "low",
+  list_dir:              "low",   // legacy
+  open_folder:           "low",
+  file_exists:           "low",
+  search_files:          "low",
+  grep_files:            "low",
+  diff_render:           "low",
+  close_context_item:    "low",
+
+  // ── Git — read-only ───────────────────────────────────────────────────────
+  git_status:            "low",
+  git_diff:              "low",
+
+  // ── Memory ────────────────────────────────────────────────────────────────
+  memory_get:            "low",
+  memory_put:            "medium",
+  memory_search:         "low",
+  vector_search:         "medium",
+  search_knowledge:      "low",   // legacy
+
+  // ── Tool catalog ──────────────────────────────────────────────────────────
+  tool_search:           "low",
+  tool_search_code:      "low",
+  tool_describe:         "low",
+
+  // ── MCP ───────────────────────────────────────────────────────────────────
+  mcp_list_servers:      "low",
+  mcp_list_tools:        "low",
+  mcp_call_tool:         "high",
+
+  // ── Control / agents / sessions ───────────────────────────────────────────
+  finish:                "low",
+  ask_user:              "low",
+  update_plan:           "low",
+  goal:                  "low",
+  steer:                 "low",
+  agents_list:           "low",
+  agent_send:            "medium",
+  subagents:             "medium",
+  sessions_list:         "low",
+  session_status:        "low",
+  sessions_yield:        "low",
+  sessions_history:      "medium",
+  sessions_send:         "medium",
+  sessions_spawn:        "medium",
+  heartbeat_respond:     "low",
+
+  // ── Automation ────────────────────────────────────────────────────────────
+  cron:                  "high",
+  gateway:               "high",
+  nodes:                 "high",
+
+  // ── Messaging / productivity ──────────────────────────────────────────────
+  message:               "high",
+  send_email:            "high",
+  draft_email:           "medium",
+  calendar_create_event: "high",
+  slack_send_message:    "high",
+
+  // ── Filesystem — writes (dangerous) ──────────────────────────────────────
+  write:                 "high",
+  write_file:            "high",
+  edit:                  "high",
+  apply_patch:           "high",
+  make_directory:        "high",
+  create_file:           "high",   // legacy
+  move_file:             "high",   // legacy
+  patch_file:            "high",   // legacy
+  delete_path:           "destructive",
+  delete_file:           "destructive",  // legacy
+
+  // ── Code / shell (dangerous) ──────────────────────────────────────────────
+  exec:                  "high",
+  bash:                  "high",
+  shell:                 "high",
+  execute_shell:         "high",
+  execute_shell_popen:   "high",
+  process:               "high",
+  code_execution:        "high",
+  run_python:            "high",
+  execute_python_code:   "high",
+  execute_python_file:   "high",
+  run_node:              "high",
+  run_code:              "high",   // legacy
+
+  // ── Git — write (dangerous) ───────────────────────────────────────────────
+  git_commit:            "high",
+  clone_repository:      "high",
+
+  // ── DevOps (dangerous) ───────────────────────────────────────────────────
+  run_tests:             "high",
+  run_build:             "high",
+  run_shell:             "destructive",   // legacy
+  deploy_service:        "high",
+  github_create_issue:   "high",
+  github_create_pr:      "high",
+  database_query:        "high",
+
+  // ── HTTP mutations (dangerous) ────────────────────────────────────────────
+  http_request:          "high",
+
+  // ── Browser (dangerous) ───────────────────────────────────────────────────
+  browser:               "high",
+  playwright_open:       "high",
+  playwright_click:      "high",
+  playwright_screenshot: "medium",
+
+  // ── LLM tasks ────────────────────────────────────────────────────────────
+  llm_task:              "medium",
+  structured_extract:    "medium",
 };
 
 function toolRisk(toolName) {

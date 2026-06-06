@@ -16,6 +16,7 @@
 // (it surfaces the Location so the model must re-fetch through the guard).
 
 import fs from "node:fs/promises";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import net from "node:net";
@@ -24,6 +25,8 @@ import { lookup as rawLookup } from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { catalogSearch, catalogDescribe, catalogText, TOOL_DEFS } from "./tool-catalog.mjs";
 
 const BITDEER_KEY = process.env.BITDEER_API_KEY;
 const BASE_URL =
@@ -33,6 +36,13 @@ const EXEC_TIMEOUT_MS = Number(process.env.SUPER_NOVA_EXEC_TIMEOUT_MS || 30000);
 const FETCH_TIMEOUT_MS = Number(process.env.SUPER_NOVA_FETCH_TIMEOUT_MS || 20000);
 const MAX_OUTPUT = 6000;
 const MAX_BODY = 8000;
+
+const __tools_dir = path.dirname(fileURLToPath(import.meta.url));
+// Workspace root: parent of scripts/
+const WORKSPACE_DIR = process.env.NOVA_WORKSPACE || path.resolve(__tools_dir, "..");
+// State dir for memory store — same env var used by the workers
+const TOOLS_STATE_DIR = process.env.OPENCLAW_STATE_DIR || path.resolve(__tools_dir, "..", ".nova-data");
+const MEMORY_FILE = path.join(TOOLS_STATE_DIR, "agent-memory.json");
 
 // ── SSRF guard ───────────────────────────────────────────────────────────────
 
@@ -464,50 +474,501 @@ async function readFile(args, ctx) {
   return { content: data.slice(0, MAX_BODY), truncated: data.length > MAX_BODY };
 }
 
+// ── Memory store (file-backed KV in TOOLS_STATE_DIR) ─────────────────────────
+
+function memLoad() {
+  try {
+    return JSON.parse(readFileSync(MEMORY_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function memSave(data) {
+  try {
+    mkdirSync(TOOLS_STATE_DIR, { recursive: true });
+    writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch {}
+}
+
+function memGet(args) {
+  const key = String(args.key || "");
+  if (!key) return { error: "key required" };
+  const data = memLoad();
+  if (!(key in data)) return { error: "not_found", key };
+  return { key, value: data[key] };
+}
+
+function memPut(args) {
+  const key = String(args.key || "");
+  if (!key) return { error: "key required" };
+  const data = memLoad();
+  data[key] = args.value;
+  memSave(data);
+  return { key, saved: true };
+}
+
+function memSearch(args) {
+  const q = String(args.query || "").toLowerCase();
+  const limit = Math.max(1, Number(args.limit) || 5);
+  const data = memLoad();
+  const matches = Object.entries(data)
+    .filter(([k, v]) => k.toLowerCase().includes(q) || String(JSON.stringify(v)).toLowerCase().includes(q))
+    .slice(0, limit)
+    .map(([key, value]) => ({ key, value }));
+  return { matches, count: matches.length };
+}
+
+// ── Safe tool implementations (new) ──────────────────────────────────────────
+
+function calculator(args) {
+  const expr = String(args.expression || "").trim().slice(0, 500);
+  if (!expr) return { error: "expression required" };
+  // Allow only digits, arithmetic operators, parens, dot, spaces, e/E (sci notation), %, **
+  if (!/^[\d\s+\-*/().%eE^]+$/.test(expr.replace(/\*\*/g, "^"))) {
+    return { error: "unsafe expression — only arithmetic characters allowed" };
+  }
+  try {
+    // Use ** for exponentiation (replace ^ first)
+    const safe = expr.replace(/\^/g, "**");
+    // eslint-disable-next-line no-new-func
+    const result = Function('"use strict"; return (' + safe + ")")();
+    if (typeof result !== "number") return { error: "non-numeric result" };
+    if (!isFinite(result)) return { result: String(result), note: "Infinity or NaN" };
+    return { expression: expr, result };
+  } catch (e) {
+    return { error: "eval failed: " + (e.message || e) };
+  }
+}
+
+async function listDirectory(args, ctx) {
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const rel = String(args.path || ".");
+  const target = resolveInSandbox(dir, rel);
+  let entries;
+  try {
+    entries = await fs.readdir(target, { withFileTypes: true });
+  } catch {
+    return { error: "not found or not a directory: " + rel };
+  }
+  const items = entries.map((e) => ({
+    name: e.name,
+    type: e.isDirectory() ? "dir" : "file",
+  }));
+  return { path: rel, items, count: items.length };
+}
+
+async function fileExists(args, ctx) {
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const rel = String(args.path || "");
+  if (!rel) return { error: "path required" };
+  let target;
+  try {
+    target = resolveInSandbox(dir, rel);
+  } catch {
+    return { error: "path escapes sandbox" };
+  }
+  let stat;
+  try {
+    stat = await fs.stat(target);
+  } catch {
+    return { path: rel, exists: false };
+  }
+  return { path: rel, exists: true, isFile: stat.isFile(), isDir: stat.isDirectory(), size: stat.size };
+}
+
+async function searchFiles(args, ctx) {
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const pattern = String(args.pattern || "");
+  if (!pattern) return { error: "pattern required" };
+  const root = args.path ? resolveInSandbox(dir, String(args.path)) : dir;
+  // Simple recursive glob — use find via execProcess
+  const result = await execProcess("find", [root, "-name", pattern, "-maxdepth", "8"], { cwd: dir });
+  const files = (result.stdout || "")
+    .split("\n")
+    .map((f) => f.trim())
+    .filter(Boolean)
+    .map((f) => path.relative(dir, f));
+  return { pattern, files, count: files.length };
+}
+
+async function grepFiles(args, ctx) {
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const pattern = String(args.pattern || "");
+  if (!pattern) return { error: "pattern required" };
+  const root = args.path ? resolveInSandbox(dir, String(args.path)) : dir;
+  const maxMatches = Math.min(Number(args.max_matches) || 100, 500);
+  const result = await execProcess(
+    "grep",
+    ["-rn", "--include", args.glob || "*", "-m", String(maxMatches), pattern, root],
+    { cwd: dir },
+  );
+  const lines = (result.stdout || "")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => l.replace(dir + path.sep, ""));
+  return { pattern, matches: lines, count: lines.length, truncated: lines.length >= maxMatches };
+}
+
+async function gitStatus(args) {
+  const repoPath = args.path
+    ? path.resolve(WORKSPACE_DIR, String(args.path))
+    : WORKSPACE_DIR;
+  return execProcess("git", ["status", "--short"], { cwd: repoPath });
+}
+
+async function gitDiff(args) {
+  const repoPath = args.path
+    ? path.resolve(WORKSPACE_DIR, String(args.path))
+    : WORKSPACE_DIR;
+  return execProcess("git", ["diff", "--stat", "HEAD"], { cwd: repoPath });
+}
+
+function toolSearch(args) {
+  const results = catalogSearch(args.query, args.category);
+  return {
+    query: args.query,
+    count: results.length,
+    tools: results.map((td) => ({
+      name: td.name,
+      category: td.category,
+      risk: td.risk,
+      description: td.description,
+      enabledByDefault: td.enabledByDefault,
+      requiresApproval: td.requiresApproval,
+      requiresAuth: td.requiresAuth,
+    })),
+  };
+}
+
+function toolSearchCode(args) {
+  const results = catalogSearch(args.query);
+  const lang = String(args.language || "json").toLowerCase();
+  let sigs;
+  if (lang === "javascript") {
+    sigs = results.map((td) => `async function ${td.name}(args) { /* ${td.description} */ }`);
+  } else if (lang === "typescript") {
+    sigs = results.map((td) => `async function ${td.name}(args: Record<string, unknown>): Promise<ToolResult> { /* ${td.description} */ }`);
+  } else {
+    sigs = results.map((td) => ({
+      name: td.name,
+      category: td.category,
+      risk: td.risk,
+      inputSchema: td.inputSchema,
+    }));
+  }
+  return { query: args.query, language: lang, count: sigs.length, signatures: sigs };
+}
+
+function toolDescribe(args) {
+  const td = catalogDescribe(args.name);
+  if (!td) return { error: `no tool named '${args.name}' in catalog` };
+  return { tool: td };
+}
+
+function finish(args) {
+  return { done: true, answer: String(args.answer || "") };
+}
+
+function askUser(args) {
+  return {
+    pending_user_input: true,
+    question: String(args.question || ""),
+    options: Array.isArray(args.options) ? args.options : [],
+  };
+}
+
+function updatePlan(args) {
+  const steps = Array.isArray(args.steps) ? args.steps : [];
+  return { plan_updated: true, steps };
+}
+
+function sessionStatus(args, ctx) {
+  return {
+    runId: (ctx && ctx.runId) || null,
+    workspace: WORKSPACE_DIR,
+    stateDir: TOOLS_STATE_DIR,
+    dangerousEnabled: toolsEnabledDangerous(),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function heartbeatRespond(args) {
+  return { heartbeat: true, status: String(args.status || "ok"), timestamp: new Date().toISOString() };
+}
+
+function goalHandler(args) {
+  const action = String(args.action || "get");
+  if (action === "set") {
+    memPut({ key: "_agent_goal", value: args.goal });
+    return { action: "set", goal: args.goal };
+  }
+  const stored = memGet({ key: "_agent_goal" });
+  return { action: "get", goal: stored.value || null };
+}
+
+function steerHandler(args) {
+  return { steered: true, instruction: String(args.instruction || "") };
+}
+
+function agentsListHandler() {
+  return { agents: ["super-nova/work-tree", "super-nova/deep-worker", "super-nova/poll-events", "super-nova/scratchpad"] };
+}
+
+function sessionsListHandler() {
+  return { sessions: [], note: "sessions not wired in this runtime" };
+}
+
+function sessionsYieldHandler(args) {
+  return { yielded: true, message: String(args.message || "") };
+}
+
+function closeContextItemHandler(args) {
+  return { closed: true, key: String(args.key || "") };
+}
+
+function diffRender(args) {
+  const before = String(args.before || "").split("\n");
+  const after = String(args.after || "").split("\n");
+  const lines = [];
+  const max = Math.max(before.length, after.length);
+  let adds = 0, dels = 0;
+  for (let i = 0; i < max; i++) {
+    if (i >= before.length) { lines.push("+ " + after[i]); adds++; }
+    else if (i >= after.length) { lines.push("- " + before[i]); dels++; }
+    else if (before[i] !== after[i]) {
+      lines.push("- " + before[i]);
+      lines.push("+ " + after[i]);
+      dels++; adds++;
+    } else {
+      lines.push("  " + before[i]);
+    }
+  }
+  return {
+    diff: lines.join("\n").slice(0, MAX_OUTPUT),
+    additions: adds,
+    deletions: dels,
+    truncated: lines.join("\n").length > MAX_OUTPUT,
+  };
+}
+
+function notConfigured(args, name) {
+  return {
+    error: "not_configured",
+    tool: name,
+    message: "Tool is declared in the catalog but not wired in this runtime. It needs credentials, policy, and a real handler.",
+  };
+}
+
+// ── Dangerous tool implementations (new) ─────────────────────────────────────
+
+async function runPythonFile(args, ctx) {
+  const rel = String(args.path || "");
+  if (!rel) return { error: "path required" };
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const file = resolveInSandbox(dir, rel);
+  const argv = Array.isArray(args.args) ? args.args.map(String) : [];
+  const timeoutMs = (Number(args.timeout_sec) || 30) * 1000;
+  return execProcess("python3", [file, ...argv], { cwd: dir, timeoutMs });
+}
+
+async function runCodeExecution(args, ctx) {
+  const lang = String(args.language || "").toLowerCase();
+  const code = String(args.code || "");
+  if (!code) return { error: "code required" };
+  if (lang === "python") return runPython(args, ctx);
+  if (lang === "javascript" || lang === "typescript") return runNode(args, ctx);
+  if (lang === "bash") return shellExec({ command: code, timeout_sec: args.timeout_sec }, ctx);
+  return { error: `unsupported language: ${lang}` };
+}
+
+async function editFile(args, ctx) {
+  const rel = String(args.path || "");
+  if (!rel) return { error: "path required" };
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const file = resolveInSandbox(dir, rel);
+  let text;
+  try {
+    text = await fs.readFile(file, "utf8");
+  } catch {
+    return { error: "file not found: " + rel };
+  }
+  const oldText = String(args.old_text || "");
+  const newText = String(args.new_text ?? "");
+  if (!text.includes(oldText)) return { error: "old_text not found in file" };
+  await fs.writeFile(file, text.replace(oldText, newText), "utf8");
+  return { path: file, replacements: 1 };
+}
+
+async function applyPatch(args, ctx) {
+  const patch = String(args.patch || "");
+  if (!patch) return { error: "patch required" };
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const patchFile = path.join(dir, `patch-${Date.now()}.diff`);
+  await fs.writeFile(patchFile, patch, "utf8");
+  return execProcess("patch", ["-p1", "-i", patchFile], { cwd: dir });
+}
+
+async function makeDir(args, ctx) {
+  const rel = String(args.path || "");
+  if (!rel) return { error: "path required" };
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const target = resolveInSandbox(dir, rel);
+  await fs.mkdir(target, { recursive: true });
+  return { path: path.relative(dir, target), created: true };
+}
+
+async function deletePath(args, ctx) {
+  const rel = String(args.path || "");
+  if (!rel) return { error: "path required" };
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const target = resolveInSandbox(dir, rel);
+  await fs.rm(target, { recursive: false }); // non-recursive for safety
+  return { path: path.relative(dir, target), deleted: true };
+}
+
+async function gitCommit(args) {
+  const message = String(args.message || "");
+  if (!message) return { error: "message required" };
+  const repoPath = args.path ? path.resolve(WORKSPACE_DIR, String(args.path)) : WORKSPACE_DIR;
+  const add = await execProcess("git", ["add", "-A"], { cwd: repoPath });
+  if (add.exitCode !== 0) return { error: "git add failed", stdout: add.stdout, stderr: add.stderr };
+  return execProcess("git", ["commit", "-m", message], { cwd: repoPath });
+}
+
+async function cloneRepo(args, ctx) {
+  const url = String(args.url || "");
+  if (!url) return { error: "url required" };
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const dest = args.directory ? resolveInSandbox(dir, String(args.directory)) : dir;
+  return execProcess("git", ["clone", "--depth=1", url, dest], { cwd: dir, timeoutMs: 90000 });
+}
+
+async function runCommand(args, ctx) {
+  const command = String(args.command || "");
+  if (!command) return { error: "command required" };
+  const dir = await sandboxDir(ctx && ctx.runId);
+  const timeoutMs = (Number(args.timeout_sec) || 120) * 1000;
+  return execProcess("bash", ["-lc", command], { cwd: dir, timeoutMs });
+}
+
+// http_request: same SSRF guard as http_fetch, but exposed in dangerous tier
+// because POST/PUT/DELETE can mutate external state.
+async function httpRequest(args) {
+  return httpFetch(args);
+}
+
 // ── Registry ─────────────────────────────────────────────────────────────────
 
 const SAFE_TOOLS = {
+  // ── Network ──────────────────────────────────────────────────────────────
   http_fetch: {
     run: httpFetch,
-    desc: 'fetch an http/https URL. args: {url, method?, headers?, body?}. Private/internal/metadata addresses are blocked; redirects are not auto-followed. Returns {status, contentType, body (truncated)}. Use this for plain HTTP APIs and public endpoints. If the site blocks bots (403, Cloudflare, JS-rendered), use browser_fetch instead.',
+    desc: "fetch an http/https URL. args: {url, method?, headers?, body?}. SSRF-guarded; private addresses and metadata endpoints are blocked; redirects are NOT auto-followed. Returns {status, contentType, body}. For bot-blocked pages use browser_fetch.",
   },
   browser_fetch: {
     run: browserFetch,
-    desc: 'fetch a URL using a real headless browser (Steel.dev). args: {url}. Bypasses bot-protection, Cloudflare, and JS-rendered pages that block http_fetch. Returns {body (text, up to 8000 chars), links}. Use this when http_fetch returns 403 or empty content on a real website.',
+    desc: "fetch a URL using a real headless browser (Steel.dev). args: {url}. Bypasses Cloudflare, 403, and JS-rendered pages. Returns {body (text ≤8000 chars), links}.",
   },
   web_search: {
     run: webSearch,
-    desc: 'search the web via Firecrawl (primary) or Brave (fallback). args: {query}. Returns ranked results with title, url, snippet. Use this to discover URLs, then fetch them with http_fetch or browser_fetch.',
+    desc: "search the web via Firecrawl (primary) or Brave (fallback). args: {query}. Returns ranked {title, url, snippet} results. Discover URLs, then fetch with http_fetch or browser_fetch.",
   },
+  web_fetch: { run: httpFetch, desc: "alias for http_fetch. args: {url, max_chars?}." },
+  search_web: { run: webSearch, desc: "alias for web_search. args: {query}." },
+
+  // ── Image ────────────────────────────────────────────────────────────────
   image_generate: {
     run: imageGenerate,
-    desc: 'generate an image from a text prompt (Bitdeer). args: {prompt}. Saves a file and returns its path.',
+    desc: "generate an image from a text prompt (Bitdeer). args: {prompt, size?}. Saves locally and returns the file path.",
   },
+  generate_image: { run: imageGenerate, desc: "alias for image_generate. args: {prompt}." },
+
+  // ── Calculator ───────────────────────────────────────────────────────────
+  calculator: {
+    run: calculator,
+    desc: "evaluate a safe arithmetic expression. args: {expression}. Only numbers, +−×÷, parens, %, ^ allowed. Returns {expression, result}.",
+  },
+
+  // ── File system (read-only safe, sandbox) ────────────────────────────────
+  read_file:       { run: readFile,       desc: "read a file in the sandbox. args: {path}." },
+  read:            { run: readFile,       desc: "alias for read_file. args: {path}." },
+  open_file:       { run: readFile,       desc: "alias for read_file. args: {path}." },
+  list_directory:  { run: listDirectory,  desc: "list files in a sandbox folder. args: {path?}." },
+  list_folder:     { run: listDirectory,  desc: "alias for list_directory. args: {path?}." },
+  open_folder:     { run: listDirectory,  desc: "alias for list_directory. args: {path?}." },
+  file_exists:     { run: fileExists,     desc: "check if a sandbox path exists. args: {path}. Returns {exists, isFile, isDir, size}." },
+  search_files:    { run: searchFiles,    desc: "find files by glob in sandbox. args: {pattern, path?}." },
+  grep_files:      { run: grepFiles,      desc: "regex-search sandbox file contents. args: {pattern, path?, glob?, max_matches?}." },
+  diff_render:     { run: diffRender,     desc: "render a before/after text diff. args: {before, after}. Returns {diff, additions, deletions}." },
+  close_context_item: { run: closeContextItemHandler, desc: "close a context item. args: {key}. No-op in this runtime." },
+
+  // ── Git (read-only) ───────────────────────────────────────────────────────
+  git_status:      { run: gitStatus,      desc: "run git status --short in the workspace. args: {path?}." },
+  git_diff:        { run: gitDiff,        desc: "run git diff --stat HEAD in the workspace. args: {path?}." },
+
+  // ── Memory ────────────────────────────────────────────────────────────────
+  memory_get:      { run: memGet,         desc: "get a memory item by key. args: {key}." },
+  memory_put:      { run: memPut,         desc: "save a memory item. args: {key, value}." },
+  memory_search:   { run: memSearch,      desc: "search memory by query. args: {query, limit?}." },
+
+  // ── Tool catalog ──────────────────────────────────────────────────────────
+  tool_search:     { run: toolSearch,     desc: "search the tool catalog. args: {query, category?}. Returns matching tool metadata." },
+  tool_search_code:{ run: toolSearchCode, desc: "search catalog, return code signatures. args: {query, language?}." },
+  tool_describe:   { run: toolDescribe,   desc: "describe one tool by name. args: {name}. Returns full schema and flags." },
+
+  // ── Control ───────────────────────────────────────────────────────────────
+  finish:          { run: finish,         desc: "finish the current task. args: {answer}. Returns {done:true, answer}." },
+  ask_user:        { run: askUser,        desc: "pause and ask the user a question. args: {question, options?}. Returns {pending_user_input:true, question, options}." },
+  update_plan:     { run: updatePlan,     desc: "update the visible task plan. args: {steps:[{step,status}]}." },
+  goal:            { run: goalHandler,    desc: "set or get the current goal. args: {action:'set'|'get', goal?}." },
+  steer:           { run: steerHandler,   desc: "steer the run with new instruction. args: {instruction}." },
+  agents_list:     { run: agentsListHandler, desc: "list known agents. args: {}." },
+  sessions_list:   { run: sessionsListHandler, desc: "list sessions. args: {}." },
+  session_status:  { run: sessionStatus,  desc: "get current session status. args: {}." },
+  sessions_yield:  { run: sessionsYieldHandler, desc: "yield control. args: {message?}." },
+  heartbeat_respond:{ run: heartbeatRespond, desc: "respond to a heartbeat ping. args: {status}." },
 };
 
 const DANGEROUS_TOOLS = {
+  // ── Code execution ────────────────────────────────────────────────────────
   run_python: {
     run: runPython,
-    desc: 'run Python 3 code in an isolated per-run sandbox dir. args: {code}. ' +
-      EXEC_TIMEOUT_MS / 1000 +
-      's timeout. Returns {exitCode, stdout, stderr, timedOut}.',
+    desc: "run Python 3 code in the sandbox. args: {code, timeout_sec?}. Returns {exitCode, stdout, stderr, timedOut}.",
   },
+  execute_python_code: { run: runPython,        desc: "alias for run_python. args: {code, timeout_sec?}." },
+  execute_python_file: { run: runPythonFile,    desc: "execute a Python file in the sandbox. args: {path, args?, timeout_sec?}." },
   run_node: {
     run: runNode,
-    desc: 'run Node.js (ESM) code in the sandbox dir. args: {code}. Returns {exitCode, stdout, stderr, timedOut}.',
+    desc: "run Node.js (ESM) code in the sandbox. args: {code, timeout_sec?}. Returns {exitCode, stdout, stderr, timedOut}.",
   },
-  shell: {
-    run: shellExec,
-    desc: 'run a bash command in the sandbox dir. args: {command}. Returns {exitCode, stdout, stderr, timedOut}.',
-  },
-  write_file: {
-    run: writeFile,
-    desc: 'write a file inside the run sandbox. args: {path, content}.',
-  },
-  read_file: {
-    run: readFile,
-    desc: 'read a file inside the run sandbox. args: {path}.',
-  },
+  code_execution: { run: runCodeExecution, desc: "run code by language. args: {language:'python'|'javascript'|'typescript'|'bash', code, timeout_sec?}." },
+
+  // ── Shell ─────────────────────────────────────────────────────────────────
+  shell:               { run: shellExec, desc: "run a bash command in the sandbox. args: {command, timeout_sec?}. Returns {exitCode, stdout, stderr}." },
+  exec:                { run: shellExec, desc: "alias for shell. args: {command, timeout_sec?}." },
+  bash:                { run: shellExec, desc: "alias for shell. args: {command, timeout_sec?}." },
+  execute_shell:       { run: shellExec, desc: "alias for shell. args: {command, timeout_sec?}." },
+  execute_shell_popen: { run: shellExec, desc: "alias for shell. args: {command, timeout_sec?}." },
+
+  // ── File write / edit / delete ────────────────────────────────────────────
+  write_file: { run: writeFile,  desc: "write a file in the sandbox. args: {path, content, overwrite?}." },
+  write:      { run: writeFile,  desc: "alias for write_file. args: {path, content, overwrite?}." },
+  edit:       { run: editFile,   desc: "replace exact text in a sandbox file. args: {path, old_text, new_text}." },
+  apply_patch:{ run: applyPatch, desc: "apply a unified diff patch in the sandbox. args: {patch}." },
+  make_directory: { run: makeDir,    desc: "create a sandbox directory. args: {path}." },
+  delete_path:    { run: deletePath, desc: "delete a sandbox file (non-recursive). args: {path}. DESTRUCTIVE." },
+
+  // ── Git (write) ───────────────────────────────────────────────────────────
+  git_commit:         { run: gitCommit,  desc: "stage all and commit in the workspace. args: {message, path?}." },
+  clone_repository:   { run: cloneRepo,  desc: "clone a git repo into the sandbox. args: {url, directory?}." },
+
+  // ── DevOps ────────────────────────────────────────────────────────────────
+  run_tests: { run: runCommand, desc: "run a test command in the sandbox. args: {command, timeout_sec?}." },
+  run_build:  { run: runCommand, desc: "run a build command in the sandbox. args: {command, timeout_sec?}." },
+
+  // ── HTTP (mutating methods) ────────────────────────────────────────────────
+  http_request: { run: httpRequest, desc: "make any HTTP request (SSRF-guarded). args: {method, url, headers?, body?}. POST/PUT/DELETE can mutate external state." },
 };
 
 // Dangerous tools are only offered/runnable when SUPER_NOVA_EXEC is set to a
@@ -521,14 +982,35 @@ export function toolsEnabledDangerous() {
 }
 
 export function toolCatalogText(dangerous) {
-  const all = { ...SAFE_TOOLS, ...(dangerous ? DANGEROUS_TOOLS : {}) };
-  const lines = Object.entries(all).map(([name, t]) => `- ${name}: ${t.desc}`);
-  if (!dangerous) {
-    lines.push(
-      "(code/shell/file tools are disabled by configuration — do not call them.)",
-    );
+  const activeReg = { ...SAFE_TOOLS, ...(dangerous ? DANGEROUS_TOOLS : {}) };
+  const activeNames = new Set(Object.keys(activeReg));
+
+  // Active tools: grouped by section
+  const safeLines = Object.entries(SAFE_TOOLS).map(([name, t]) => `  ${name}: ${t.desc}`);
+  const sections = ["=== ACTIVE — SAFE TOOLS (always callable) ===", ...safeLines];
+
+  if (dangerous) {
+    const danLines = Object.entries(DANGEROUS_TOOLS).map(([name, t]) => `  ${name}: ${t.desc}`);
+    sections.push("", "=== ACTIVE — DANGEROUS TOOLS (SUPER_NOVA_EXEC=1) ===", ...danLines);
+  } else {
+    sections.push("", "(dangerous tools — code/shell/file/git-write — are OFF. Set SUPER_NOVA_EXEC=1 to enable.)");
   }
-  return lines.join("\n");
+
+  // Catalog-only tools not yet wired, organized by category
+  const catalogOnly = TOOL_DEFS.filter((td) => !activeNames.has(td.name));
+  if (catalogOnly.length) {
+    const byCat = new Map();
+    for (const td of catalogOnly) {
+      if (!byCat.has(td.category)) byCat.set(td.category, []);
+      byCat.get(td.category).push(td.name);
+    }
+    sections.push("", "=== CATALOG (declared, not yet wired — use tool_describe for schema) ===");
+    for (const [cat, names] of byCat) {
+      sections.push(`  ${cat}: ${names.join(", ")}`);
+    }
+  }
+
+  return sections.join("\n");
 }
 
 export async function runTool(name, args, ctx) {
@@ -536,12 +1018,19 @@ export async function runTool(name, args, ctx) {
   const reg = { ...SAFE_TOOLS, ...(dangerous ? DANGEROUS_TOOLS : {}) };
   const tool = reg[name];
   if (!tool) {
+    // Give a more helpful error than generic "unknown tool"
     if (DANGEROUS_TOOLS[name]) {
       return {
-        error: `tool '${name}' is disabled. Set SUPER_NOVA_EXEC to enable code/shell/file tools.`,
+        error: `tool '${name}' is disabled. Set SUPER_NOVA_EXEC=1 to enable code/shell/file tools.`,
       };
     }
-    return { error: `unknown tool '${name}'.` };
+    const catalogEntry = catalogDescribe(name);
+    if (catalogEntry) {
+      return {
+        error: `tool '${name}' is in the catalog (category:${catalogEntry.category}, risk:${catalogEntry.risk}) but not wired in this runtime. Call tool_describe('${name}') for its full schema.`,
+      };
+    }
+    return { error: `unknown tool '${name}'. Use tool_search to find available tools.` };
   }
   try {
     return await tool.run(args || {}, ctx || {});
@@ -549,3 +1038,6 @@ export async function runTool(name, args, ctx) {
     return { error: String(e?.message || e) };
   }
 }
+
+// Export the catalog for external consumers
+export { TOOL_DEFS, catalogSearch, catalogDescribe };
