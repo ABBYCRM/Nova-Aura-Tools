@@ -42,6 +42,98 @@ const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GOVERNANCE_PATH = path.resolve(__dirname, "..", "GOVERNANCE.json");
 
+// ── Agentic runtime additions ─────────────────────────────────────────────────
+
+// State dir for durable audit log. Matches the env var used by other daemons.
+const STATE_DIR =
+  process.env.OPENCLAW_STATE_DIR ||
+  path.resolve(__dirname, "..", ".nova-data");
+
+// Durable audit log — appends JSONL to <STATE_DIR>/audit.jsonl so every run,
+// tool call, verification, reflection, and termination is fully traceable.
+class AuditLog {
+  constructor(filePath) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    this.filePath = filePath;
+  }
+  write(eventType, payload) {
+    try {
+      const record =
+        JSON.stringify({ ts: new Date().toISOString(), eventType, payload }) +
+        "\n";
+      fs.appendFileSync(this.filePath, record, "utf-8");
+    } catch {
+      /* non-fatal — observability must not block execution */
+    }
+  }
+}
+
+// Global audit log (all runs) + per-run factory (one file per run in STATE_DIR).
+const globalAudit = new AuditLog(path.join(STATE_DIR, "audit.jsonl"));
+
+function runAudit(runId) {
+  const dir = path.join(STATE_DIR, "runs", String(runId));
+  fs.mkdirSync(dir, { recursive: true });
+  return new AuditLog(path.join(dir, "audit.jsonl"));
+}
+
+// ── Risk gates ────────────────────────────────────────────────────────────────
+// Each tool is assigned a risk level. HIGH requires SUPER_NOVA_EXEC=1;
+// DESTRUCTIVE additionally requires SUPER_NOVA_ALLOW_DESTRUCTIVE=1. This maps
+// the spec's RiskLevel enum onto the existing tool catalog.
+const TOOL_RISK = {
+  web_search: "low",
+  search_knowledge: "low",
+  generate_image: "low",
+  read_file: "medium",
+  list_dir: "low",
+  write_file: "high",
+  patch_file: "high",
+  run_code: "high",
+  run_shell: "destructive",
+  delete_file: "destructive",
+  fetch_url: "medium",
+  create_file: "high",
+  move_file: "high",
+};
+
+function toolRisk(toolName) {
+  return TOOL_RISK[String(toolName)] || "low";
+}
+
+function isToolAllowed(toolName) {
+  const risk = toolRisk(toolName);
+  if (risk === "destructive") {
+    return process.env.SUPER_NOVA_ALLOW_DESTRUCTIVE === "1";
+  }
+  if (risk === "high") {
+    return toolsEnabledDangerous(); // SUPER_NOVA_EXEC=1
+  }
+  return true;
+}
+
+// ── Acceptance criteria ───────────────────────────────────────────────────────
+// Structured criteria stored at run start in the audit log so the post-run
+// review can check whether each criterion was met.
+function acceptanceCriteria(goal) {
+  return [
+    "A work tree plan must be created from the user goal.",
+    "Every terminal node must be executed through the bounded ReAct tool loop.",
+    "Each tool result must be observed and verified by the critic role.",
+    "Verification failures must trigger a bounded correction loop (MAX_CORRECTIONS).",
+    "A final synthesized report must be produced.",
+    "The run must halt when all nodes resolve or the failure/step budget is exceeded.",
+    `The final output must address the goal: ${String(goal).slice(0, 200)}`,
+  ];
+}
+
+// ── Run-level bounded autonomy ────────────────────────────────────────────────
+// Hard limits on total node execution attempts and total terminal failures
+// across an entire run (not per-node). If either limit is hit we abort
+// immediately rather than continuing to spend tokens/time.
+const MAX_RUN_STEPS = Number(process.env.WORK_TREE_MAX_RUN_STEPS || 200);
+const MAX_RUN_FAILURES = Number(process.env.WORK_TREE_MAX_RUN_FAILURES || 20);
+
 const DATABASE_URL =
   process.env.SCRATCHPAD_DATABASE_URL || process.env.DATABASE_URL;
 const BITDEER_KEY = process.env.BITDEER_API_KEY;
@@ -526,20 +618,62 @@ async function executeTerminal(run, nodes, node, priorIssues, role = "executor")
       return { result, trace };
     }
     if (obj.tool) {
-      const exec = await runTool(String(obj.tool), obj.args || {}, ctx);
+      const toolName = String(obj.tool);
+      // Risk gate — block tools whose risk level exceeds current permissions.
+      if (!isToolAllowed(toolName)) {
+        const risk = toolRisk(toolName);
+        globalAudit.write("tool_blocked", {
+          runId: run.id,
+          nodeId: node.id,
+          tool: toolName,
+          risk,
+          reason:
+            risk === "destructive"
+              ? "SUPER_NOVA_ALLOW_DESTRUCTIVE not set"
+              : "SUPER_NOVA_EXEC not set",
+        });
+        messages.push({ role: "assistant", content: raw });
+        messages.push({
+          role: "user",
+          content:
+            `Tool "${toolName}" is blocked (risk: ${risk}). Choose a different ` +
+            "approach that does not require this tool.",
+        });
+        continue;
+      }
+      // Audit: tool_call
+      globalAudit.write("tool_call", {
+        runId: run.id,
+        nodeId: node.id,
+        step: step + 1,
+        tool: toolName,
+        risk: toolRisk(toolName),
+        args: obj.args || {},
+      });
+      const exec = await runTool(toolName, obj.args || {}, ctx);
+      const toolOk = !(exec && exec.error);
+      // Audit: tool_result
+      globalAudit.write("tool_result", {
+        runId: run.id,
+        nodeId: node.id,
+        step: step + 1,
+        tool: toolName,
+        ok: toolOk,
+        error: exec?.error,
+      });
       trace.push({
         step: step + 1,
         stage: "execute",
         role,
-        tool: String(obj.tool),
+        tool: toolName,
         args: obj.args || {},
-        ok: !(exec && exec.error),
+        ok: toolOk,
         result: clip(JSON.stringify(exec), 1200),
       });
       messages.push({ role: "assistant", content: raw });
       messages.push({
         role: "user",
-        content: `TOOL RESULT (${obj.tool}):\n${clip(JSON.stringify(exec), 4000)}`,
+        content: `TOOL RESULT (${toolName}):\n${clip(JSON.stringify(exec), 4000)}`,
       });
       continue;
     }
@@ -631,14 +765,22 @@ async function verify(run, node, result) {
 
 // Run one terminal node through execute -> verify -> correct (bounded). The
 // Super Nova tool-use trace from every attempt is accumulated and persisted so
-// the UI can show exactly what the node did.
+// the UI can show exactly what the node did. Emits structured audit events at
+// each phase: task_started, verification, reflection, task_done/task_failed.
 async function runTerminal(run, nodes, node) {
+  const audit = runAudit(run.id);
   let issues = "";
   let result = "";
   let verification = "";
   let passed = false;
   let trace = [];
   const role = roleForNode(node);
+
+  // Emit: task_started
+  const auditPayload = { runId: run.id, nodeId: node.id, title: node.title, role };
+  globalAudit.write("task_started", auditPayload);
+  audit.write("task_started", auditPayload);
+
   for (let attempt = 0; attempt <= MAX_CORRECTIONS; attempt++) {
     const ex = await executeTerminal(run, nodes, node, issues, role);
     result = ex.result;
@@ -652,9 +794,41 @@ async function runTerminal(run, nodes, node) {
     verification = v.pass
       ? "verified"
       : `attempt ${attempt + 1} rejected: ${v.issues}`;
+
+    // Emit: verification
+    const vPayload = {
+      runId: run.id,
+      nodeId: node.id,
+      attempt: attempt + 1,
+      passed: v.pass,
+      issues: v.issues,
+    };
+    globalAudit.write("verification", vPayload);
+    audit.write("verification", vPayload);
+
     if (v.pass) break;
+
+    // Emit: reflection — structured decision on how to handle the failure.
+    // decision: "retry" when correction passes remain; "fail_task" when budget
+    // is exhausted. Mirrors the spec's Reflection interface.
+    const willRetry = attempt < MAX_CORRECTIONS;
+    const reflectionPayload = {
+      runId: run.id,
+      nodeId: node.id,
+      taskDescription: node.title,
+      toolsUsed: ex.trace ? ex.trace.map((t) => t.tool).filter(Boolean) : [],
+      verified: false,
+      reason: v.issues,
+      decision: willRetry ? "retry" : "fail_task",
+      attemptsDone: attempt + 1,
+      attemptsRemaining: MAX_CORRECTIONS - attempt,
+    };
+    globalAudit.write("reflection", reflectionPayload);
+    audit.write("reflection", reflectionPayload);
+
     issues = v.issues;
   }
+
   await setNode(node.id, {
     status: passed ? "done" : "failed",
     result: clip(result, 8000),
@@ -663,6 +837,12 @@ async function runTerminal(run, nodes, node) {
     trace: serializeTrace(trace),
     role: roleForNode(node),
   });
+
+  // Emit: task_done / task_failed
+  const donePayload = { runId: run.id, nodeId: node.id, passed };
+  globalAudit.write(passed ? "task_done" : "task_failed", donePayload);
+  audit.write(passed ? "task_done" : "task_failed", donePayload);
+
   return passed;
 }
 
@@ -772,6 +952,20 @@ async function advanceRun(run) {
 
     // Seed the root from the goal on first touch.
     if (!nodes.length) {
+      // Emit: run_started — records goal + acceptance criteria in the audit log
+      // so post-run review can check every criterion was satisfied.
+      const startPayload = {
+        runId: run.id,
+        goal: run.goal,
+        acceptanceCriteria: acceptanceCriteria(run.goal),
+        maxRunSteps: MAX_RUN_STEPS,
+        maxRunFailures: MAX_RUN_FAILURES,
+        maxCorrections: MAX_CORRECTIONS,
+        maxToolSteps: MAX_TOOL_STEPS,
+      };
+      globalAudit.write("run_started", startPayload);
+      runAudit(run.id).write("run_started", startPayload);
+
       await insertNode({
         runId: run.id,
         parentId: null,
@@ -782,6 +976,30 @@ async function advanceRun(run) {
         position: 0,
       });
       nodes = await loadNodes(run.id);
+    }
+
+    // Bounded autonomy — hard limits on total attempts and failures across the
+    // entire run. Derived from node data so they survive restarts correctly.
+    // Checked each iteration so over-budget runs abort promptly.
+    const totalAttempts = nodes.reduce((s, n) => s + (n.attempts || 0), 0);
+    const totalNodeFailures = nodes.filter(
+      (n) => n.kind === "terminal" && n.status === "failed",
+    ).length;
+    if (totalAttempts >= MAX_RUN_STEPS || totalNodeFailures >= MAX_RUN_FAILURES) {
+      const reason =
+        totalAttempts >= MAX_RUN_STEPS
+          ? `step budget exhausted (${totalAttempts}/${MAX_RUN_STEPS})`
+          : `failure budget exhausted (${totalNodeFailures}/${MAX_RUN_FAILURES})`;
+      const abortPayload = { runId: run.id, reason, totalAttempts, totalNodeFailures };
+      globalAudit.write("run_aborted", abortPayload);
+      runAudit(run.id).write("run_aborted", abortPayload);
+      if (stageLogs.length) await persistStageLogs(run.id, stageLogs);
+      await setRun(run.id, {
+        status: "failed",
+        error: `bounded autonomy: ${reason}`,
+      });
+      console.log(`work-tree-worker: run ${run.id} aborted — ${reason}`);
+      return ops;
     }
 
     // Settle composites whose children are all resolved before picking work.
@@ -881,13 +1099,25 @@ async function advanceRun(run) {
           : "All nodes verified",
       });
       await persistStageLogs(run.id, stageLogs);
+      const finalStatus = anyFailed ? "failed" : "done";
       await setRun(run.id, {
-        status: anyFailed ? "failed" : "done",
+        status: finalStatus,
         report: clip(report, 20000),
         error: anyFailed ? "one or more nodes failed verification" : "",
       });
+      // Emit: run_finished — closes the audit trail for this run.
+      const finishedPayload = {
+        runId: run.id,
+        status: finalStatus,
+        totalNodes: nodes.length,
+        terminalNodes: nodes.filter((n) => n.kind === "terminal").length,
+        failedNodes: nodes.filter((n) => n.status === "failed").length,
+        totalAttempts: nodes.reduce((s, n) => s + (n.attempts || 0), 0),
+      };
+      globalAudit.write("run_finished", finishedPayload);
+      runAudit(run.id).write("run_finished", finishedPayload);
       console.log(
-        `work-tree-worker: run ${run.id} ${anyFailed ? "failed" : "done"} (${nodes.length} nodes)`,
+        `work-tree-worker: run ${run.id} ${finalStatus} (${nodes.length} nodes)`,
       );
       return ops;
     }
