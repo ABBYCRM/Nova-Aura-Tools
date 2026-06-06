@@ -190,7 +190,10 @@ export async function chatComplete({
       );
     }
     const j = await res.json();
-    return j.choices?.[0]?.message?.content || "";
+    const msg = j.choices?.[0]?.message;
+    // Reasoning models (Kimi-K2.6, DeepSeek-R1, o1, etc.) put output in
+    // reasoning_content when content is empty — fall back so they work transparently.
+    return msg?.content || msg?.reasoning_content || "";
   } finally {
     clearTimeout(timer);
   }
