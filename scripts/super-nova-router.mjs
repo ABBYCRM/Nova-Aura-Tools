@@ -126,9 +126,14 @@ export function resolveRole(role, callerModel) {
       console.warn(
         `super-nova-router: role '${role}' provider '${providerName}' not configured; falling back to bitdeer`,
       );
-      // The override's role model belonged to the failed provider — drop it so
-      // the fallback uses a bitdeer-valid model.
-      model = callerModel || DEFAULT_MODEL;
+      // If the resolved model is gemini-only (name won't work on Bitdeer),
+      // replace it with a known-good Bitdeer model to avoid a hard 400.
+      // Otherwise keep the caller's model if it looks Bitdeer-compatible.
+      if (model.startsWith("gemini-")) {
+        model = process.env.BITDEER_FALLBACK_MODEL || "moonshotai/Kimi-K2.6";
+      } else {
+        model = callerModel || DEFAULT_MODEL;
+      }
     }
     providerName = "bitdeer";
     provider = PROVIDERS.bitdeer;

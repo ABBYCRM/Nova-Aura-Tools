@@ -47,7 +47,7 @@ const DATABASE_URL =
 const BITDEER_KEY = process.env.BITDEER_API_KEY;
 const BASE_URL =
   process.env.BITDEER_BASE_URL || "https://api-inference.bitdeer.ai/v1";
-const DEFAULT_MODEL = process.env.WORK_TREE_MODEL || "moonshotai/Kimi-K2.6";
+const DEFAULT_MODEL = process.env.WORK_TREE_MODEL || "gemini-2.5-flash";
 const POLL_MS = Number(process.env.WORK_TREE_POLL_MS || 8000);
 // How many node operations (decompose/execute) to perform per tick. Bounded so
 // progress streams to the UI and one run can't monopolize the worker.
