@@ -1272,11 +1272,12 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
   // are forced here; the Bitdeer settings fields are hidden in the modal. The
   // proxy routes gemini-* to Google and everything else to Bitdeer.
   if (s.baseUrl !== '/api/v1') { s.baseUrl = '/api/v1'; changed = true; }
-  // Model migration v2: force default to gemini-2.5-flash. Previous migration (v1)
-  // incorrectly forced all users to gpt-4o — this corrects it.
-  if (!s.modelMigration || s.modelMigration < 2) {
-    if (!s.model || !s.model.startsWith('gemini')) { s.model = 'gemini-2.5-flash'; }
-    s.modelMigration = 2; changed = true;
+  // Model migration v3: default to gpt-4o (routes to OpenAI, confirmed working key).
+  // Gemini key is currently unavailable; gpt-4o is the reliable default.
+  // Users can still select gemini-* from the dropdown when the key is restored.
+  if (!s.modelMigration || s.modelMigration < 3) {
+    if (!s.model || s.model === 'gemini-2.5-flash' || s.model === 'gemini-2.5-pro') { s.model = 'gpt-4o'; }
+    s.modelMigration = 3; changed = true;
   }
   // Non-empty placeholder so bob.js sendDirect() fires; the proxy ignores it and
   // uses the server key.
