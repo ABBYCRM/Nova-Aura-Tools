@@ -21,9 +21,28 @@
 // If a role's chosen provider isn't configured, the router falls back to bitdeer
 // (the always-present default) so a half-set override can never break a run.
 
-// Default model for all roles. gpt-4o-mini is fast and cheap; upgrade to
-// gpt-4o for harder tasks. Override per-deployment with WORK_TREE_MODEL env var.
+// Default model for all roles. Override with WORK_TREE_MODEL env var.
 const DEFAULT_MODEL = process.env.WORK_TREE_MODEL || "gpt-4o-mini";
+
+// ── DECOMP-Ω Master Identity ───────────────────────────────────────────────
+// All roles run under this master persona. Each role appends its specialization
+// below. Robert's directive: this is the overarching identity for Super Nova.
+const DECOMP_OMEGA_MASTER = `You are DECOMP-Ω, a Universal Decomposition and Reverse Engineering Agent built for forensic intelligence work.
+
+Your mission: break down any target into its real structure, mechanics, value flow, weaknesses, strengths, hidden assumptions, risks, and rebuild path. You do not summarize. You deconstruct.
+
+Operate like: Forensic Analyst + Systems Engineer + Reverse Engineer + Business Strategist + Product Architect + Intelligence Analyst + Red-Team Reviewer.
+
+For every target decompose into:
+WHAT IT IS → WHAT IT DOES → HOW IT WORKS → WHAT PARTS IT HAS → WHY THOSE PARTS EXIST → WHAT IS HIDDEN → WHAT IS WEAK → WHAT IS STRONG → WHAT CAN BE IMPROVED → WHAT ACTIONS TO TAKE NEXT
+
+Hard Rules:
+- NEVER hallucinate. NEVER invent APIs, files, revenue, ownership, code behavior, legal claims, or test results.
+- Separate: Confirmed Facts | Likely Inferences | Assumptions | Unknowns | Risks | Next Evidence Needed.
+- When evidence is missing say: UNKNOWN — needs verification.
+- Do NOT soften failures. Do NOT hype weak evidence. Do NOT protect bad ideas.
+- Make the truth usable. The final answer must be actionable.
+- At every major conclusion classify confidence: GO = strong evidence | HOLD = partial evidence | ABORT = contradiction or unsafe path.`;
 
 // All providers speak the OpenAI /chat/completions shape. baseURL has no trailing
 // slash; key is optional only for `local` (self-hosted servers often need none).
@@ -55,30 +74,38 @@ const ROLE_DEFS = {
   planner: {
     temperature: 0.3,
     persona:
-      "You are NOVA's PLANNER. You decompose goals into complete, non-overlapping " +
-      "work and synthesize finished results. Think in terms of full coverage and " +
-      "clean boundaries; never leave a gap and never duplicate effort.",
+      DECOMP_OMEGA_MASTER +
+      "\n\n[PLANNER MODE] Your current function: decompose goals into the minimum set of " +
+      "complete, non-overlapping work items. Apply the DECOMP-Ω pipeline: inventory components, " +
+      "map architecture, find dependencies, identify critical path, produce executable subtasks. " +
+      "Never leave a gap. Never duplicate effort. Output clean boundaries.",
   },
   executor: {
     temperature: 0.4,
     persona:
-      "You are NOVA's EXECUTOR. You use real tools to produce the actual finished " +
-      "deliverable — the work product itself, not a description of how you would " +
-      "do it. Never fabricate a fact you could obtain with a tool.",
+      DECOMP_OMEGA_MASTER +
+      "\n\n[EXECUTOR MODE] Your current function: use real tools to produce the actual finished " +
+      "deliverable — the work product itself, not a description of how you would do it. " +
+      "Apply the DECOMP-Ω Execution Lens: what can be built now, what can be automated, what " +
+      "needs verification. Never fabricate a fact you could obtain with a tool. Deliver the result.",
   },
   critic: {
     temperature: 0,
     persona:
-      "You are NOVA's CRITIC, an exacting anti-hallucination gate. Reject anything " +
-      "unsupported, fabricated, or short of the stated acceptance criteria. Be " +
-      "specific about what must change.",
+      DECOMP_OMEGA_MASTER +
+      "\n\n[CRITIC MODE] Your current function: Red-Team the output. Attack every claim: " +
+      "What did the executor assume? What evidence is weak? What could be fake or outdated? " +
+      "What would disprove this? Apply ABORT if there are fabricated facts, missing critical " +
+      "proof, or the deliverable is empty boilerplate. Be specific. No softening.",
   },
   researcher: {
     temperature: 0.3,
     persona:
-      "You are NOVA's RESEARCHER. You gather facts from real sources, prefer " +
-      "primary sources, cross-check claims, and cite the exact URLs you used. " +
-      "Distinguish what you verified from what you could not.",
+      DECOMP_OMEGA_MASTER +
+      "\n\n[RESEARCHER MODE] Your current function: gather facts from real sources only. " +
+      "Apply the DECOMP-Ω evidence protocol: label every claim CONFIRMED / INFERRED / ASSUMED / UNKNOWN. " +
+      "Prefer primary sources. Cross-check claims. Cite exact URLs used. Distinguish what you " +
+      "verified from what you could not. Report access blocks honestly — do not invent data.",
   },
 };
 
@@ -94,34 +121,22 @@ function usable(p, name) {
   return !!(p && p.baseURL && (p.key || name === "local"));
 }
 
-// Resolve a role (+ optional caller-supplied model, e.g. the run's chosen model)
-// to a concrete { providerName, provider, model, temperature, persona }.
+// Resolve a role to a concrete { providerName, provider, model, temperature, persona }.
+// OpenAI ONLY — all roles always route to OpenAI. No bitdeer fallback for role calls.
 export function resolveRole(role, callerModel) {
   const def = ROLE_DEFS[role] || ROLE_DEFS.executor;
-  const overrideProvider = envProvider(role);
   const roleModelEnv = process.env[`SUPER_NOVA_${role.toUpperCase()}_MODEL`];
+  const model = roleModelEnv || DEFAULT_MODEL;
 
-  // When the role is explicitly pointed at a non-default provider, the caller's
-  // model (a bitdeer model id) no longer applies — use the role's configured
-  // model. Otherwise prefer the caller's model, then the role env, then default.
-  let model = overrideProvider
-    ? roleModelEnv || DEFAULT_MODEL
-    : callerModel || roleModelEnv || DEFAULT_MODEL;
-
-  // Auto-route gpt-* models to OpenAI; everything else goes to bitdeer.
-  let providerName = overrideProvider
-    || (model.startsWith("gpt-") ? "openai" : "bitdeer");
-  let provider = PROVIDERS[providerName];
+  // OpenAI ONLY — always.
+  const providerName = "openai";
+  const provider = PROVIDERS.openai;
 
   if (!usable(provider, providerName)) {
-    if (providerName !== "bitdeer") {
-      console.warn(
-        `super-nova-router: role '${role}' provider '${providerName}' not configured; falling back to bitdeer`,
-      );
-      model = callerModel || DEFAULT_MODEL;
-    }
-    providerName = "bitdeer";
-    provider = PROVIDERS.bitdeer;
+    throw new Error(
+      `DECOMP-Ω router: OPENAI_API_KEY is required — Super Nova runs OpenAI only. ` +
+      `Set OPENAI_API_KEY to use Super Nova.`,
+    );
   }
 
   return { providerName, provider, model, temperature: def.temperature, persona: def.persona };
@@ -175,31 +190,14 @@ export async function chatComplete({
     stream: false,
   };
 
-  // Fallback chain on 503/429 (overload / rate-limit):
-  //   attempt 0   — primary provider + model
-  //   attempt 1   — same, after 2 s back-off
-  //   attempt 2   — same, after 4 s back-off
-  //   attempt 3   — bitdeer + BITDEER_FALLBACK_MODEL (true last resort), 8 s back-off
-  // Non-503/429 errors are thrown immediately (no point retrying a 400/401/404).
-  const MAX_ATTEMPTS = 4;
+  // Retry on 503/429 (overload / rate-limit) — OpenAI only, up to 3 attempts with back-off.
+  // Non-503/429 errors throw immediately.
+  const MAX_ATTEMPTS = 3;
   let lastErr = null;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) {
-      const delayMs = Math.min(2000 * 2 ** (attempt - 1), 8_000);
+      const delayMs = Math.min(1500 * 2 ** (attempt - 1), 6_000);
       await new Promise((ok) => setTimeout(ok, delayMs));
-
-      if (attempt === 3 && r.providerName !== "bitdeer") {
-        // Last resort: bitdeer with a known-good model.
-        const fallbackModel = process.env.BITDEER_FALLBACK_MODEL || "deepseek-ai/DeepSeek-V3";
-        console.warn(
-          `router(${role}): primary provider overloaded — falling back to bitdeer/${fallbackModel}`,
-        );
-        r.providerName = "bitdeer";
-        r.provider = PROVIDERS.bitdeer;
-        if (!r.provider.key) throw lastErr;
-        headers.Authorization = `Bearer ${r.provider.key}`;
-        body.model = fallbackModel;
-      }
     }
 
     const ctrl = new AbortController();
