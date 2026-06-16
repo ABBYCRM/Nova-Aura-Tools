@@ -1193,7 +1193,7 @@ body {
         <button id="wt-close-btn" aria-label="Close" title="Close">✕</button>
       </div>
     </header>
-    <p class="ws-muted ws-tiny" style="padding:0 18px;margin:2px 0 0;">Give Nova a goal. She decomposes it into a recursive task tree, then works each leaf with real tools — fetch, search, compute — plan, execute, verify, correct — to a final report.</p>
+    <p class="ws-muted ws-tiny" style="padding:0 18px;margin:2px 0 0;">Give Super Nova a goal. It runs on the supernova swarm — plan, execute with real tools, verify, correct — then files its final findings into the matching workspace (unknown topics go to Agents).</p>
     <div class="wt-body">
       <aside class="wt-left">
         <div class="wt-compose">
@@ -1892,6 +1892,44 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
     return walk('root', 0);
   }
 
+  // ── Super Nova → workspace filing ──
+  // A completed run's report carries an <!--sn-category:X--> marker chosen by
+  // the swarm. We file the report (markdown) into that workspace's IndexedDB
+  // vault exactly once (unknown category falls back to "agents" server-side).
+  var SN_FILED_LS = 'sn-filed-runs';
+  function snFiledList() { try { return JSON.parse(localStorage.getItem(SN_FILED_LS) || '[]'); } catch (_) { return []; } }
+  function snIsFiled(id) { return snFiledList().indexOf(id) !== -1; }
+  function snMarkFiled(id) { try { var a = snFiledList(); if (a.indexOf(id) === -1) { a.push(id); localStorage.setItem(SN_FILED_LS, JSON.stringify(a)); } } catch (_) {} }
+  function snCategory(report) { var m = /<!--sn-category:([a-z]+)-->/.exec(report || ''); return m ? m[1] : 'agents'; }
+  function snStrip(report) { return String(report || '').replace(/<!--sn-category:[a-z]+-->\n?/, ''); }
+  function snAddToWorkspace(category, name, text) {
+    return new Promise(function (resolve) {
+      try {
+        var req = indexedDB.open('bob-workspaces', 1);
+        req.onsuccess = function (e) {
+          var db = e.target.result;
+          try {
+            var blob = new Blob([text], { type: 'text/markdown' });
+            var tx = db.transaction('files', 'readwrite');
+            tx.objectStore('files').add({ workspace: category, name: name, mimeType: 'text/markdown', size: blob.size, blob: blob, createdAt: Date.now(), updatedAt: Date.now() });
+            tx.oncomplete = function () { resolve(true); };
+            tx.onerror = function () { resolve(false); };
+          } catch (_) { resolve(false); }
+        };
+        req.onerror = function () { resolve(false); };
+      } catch (_) { resolve(false); }
+    });
+  }
+  async function snMaybeFile(run) {
+    var cat = snCategory(run.report);
+    if (snIsFiled(run.id)) return cat;
+    var safe = String(run.goal || 'finding').slice(0, 60).replace(/[\\\/:*?"<>|]+/g, ' ').trim() || 'finding';
+    var name = 'supernova-' + run.id + '-' + safe + '.md';
+    var ok = await snAddToWorkspace(cat, name, snStrip(run.report));
+    if (ok) snMarkFiled(run.id);
+    return cat;
+  }
+
   async function loadDetail(id) {
     var box = document.getElementById('wt-detail');
     try {
@@ -1915,7 +1953,9 @@ INPUT → Parse Tone/Workspace → Adjust Hormone/Valence Vectors → Run Active
         html += '<div class="wt-node-verify bad" style="margin-bottom:10px;">' + esc(run.error) + '</div>';
       }
       if (run.report) {
-        html += '<div class="wt-section-title">Final report</div><div class="wt-report">' + esc(run.report) + '</div>';
+        var filedCat = await snMaybeFile(run);
+        html += '<div class="wt-section-title">✓ Filed to ' + esc(filedCat) + ' workspace</div>' +
+          '<div class="wt-section-title">Final report</div><div class="wt-report">' + esc(snStrip(run.report)) + '</div>';
       } else if (isActive(run.status)) {
         html += '<div class="wt-section-title">Working</div><p class="ws-muted ws-tiny"><span class="wt-spin"></span> Nova is reasoning through the tree…</p>';
       }

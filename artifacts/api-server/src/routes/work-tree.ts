@@ -56,6 +56,92 @@ function apiNode(n: Record<string, unknown>) {
   };
 }
 
+// ── Super Nova engine ───────────────────────────────────────────────────
+// A run dispatches the goal to the supernova swarm, which executes it with its
+// inline agentic tool loop and returns a final report. We ask it to classify
+// the finding into one NOVA workspace category; the client files the report
+// into that workspace (the report carries an <!--sn-category:X--> marker).
+const SUPERNOVA_BASE_URL = (
+  process.env.SUPERNOVA_BASE_URL || "https://supernova-ekbj.onrender.com"
+).replace(/\/$/, "");
+const SUPERNOVA_API_KEY =
+  process.env.SUPERNOVA_API_KEY || process.env.OPENCLAW_API_KEY || "";
+const WS_CATEGORIES = [
+  "medical", "health", "dietary", "fitness", "todo", "tasks", "agents",
+  "pictures", "numerology", "sacred", "vedic", "mystic", "manifest", "quantum",
+];
+
+function supernovaMessages(goal: string) {
+  const system =
+    "You are Super Nova, an autonomous operator. Execute the user's goal end to end using your real tools " +
+    "(web fetch/search/compute) — plan, act, verify, correct — then produce a final report of your findings. " +
+    "Classify the finding into EXACTLY ONE category id from this list: " + WS_CATEGORIES.join(", ") + ". " +
+    "If none fits, use \"agents\". Respond with ONLY a single minified JSON object — no prose, no code fences: " +
+    "{\"category\":\"<one id>\",\"title\":\"<=80 char title>\",\"report\":\"<markdown findings>\"}";
+  return [
+    { role: "system", content: system },
+    { role: "user", content: goal },
+  ];
+}
+
+function parseSupernovaResult(content: string): { category: string; title: string; report: string } {
+  let category = "agents";
+  let title = "";
+  let report = content || "";
+  try {
+    const s = content.indexOf("{");
+    const e = content.lastIndexOf("}");
+    if (s !== -1 && e > s) {
+      const obj = JSON.parse(content.slice(s, e + 1)) as Record<string, unknown>;
+      const c = String(obj.category ?? "").toLowerCase().trim();
+      category = WS_CATEGORIES.includes(c) ? c : "agents";
+      title = String(obj.title ?? "").slice(0, 200);
+      report = String(obj.report ?? content);
+    }
+  } catch {
+    // Non-JSON reply: keep the raw content, file it under "agents".
+  }
+  return { category, title, report };
+}
+
+async function dispatchToSupernova(mod: DbModule, runId: number, goal: string): Promise<void> {
+  const { eq } = await import("drizzle-orm");
+  const set = async (vals: Record<string, unknown>) => {
+    try {
+      await mod.db
+        .update(mod.workTreeRunsTable)
+        .set({ ...vals, updatedAt: new Date() })
+        .where(eq(mod.workTreeRunsTable.id, runId));
+    } catch {
+      /* best effort */
+    }
+  };
+  if (!SUPERNOVA_API_KEY) {
+    await set({ status: "failed", error: "SUPERNOVA_API_KEY is not configured on this server." });
+    return;
+  }
+  await set({ status: "running" });
+  try {
+    const resp = await fetch(`${SUPERNOVA_BASE_URL}/api/external/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPERNOVA_API_KEY}` },
+      body: JSON.stringify({ model: "abby", stream: false, max_tokens: 4096, messages: supernovaMessages(goal) }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      await set({ status: "failed", error: `supernova HTTP ${resp.status}: ${body.slice(0, 300)}` });
+      return;
+    }
+    const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const content = data?.choices?.[0]?.message?.content ?? "";
+    const { category, title, report } = parseSupernovaResult(content);
+    const stored = `<!--sn-category:${category}-->\n` + (title ? `# ${title}\n\n` : "") + report;
+    await set({ status: "done", report: stored.slice(0, 60000), model: "supernova/abby" });
+  } catch (e) {
+    await set({ status: "failed", error: `supernova dispatch failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+  }
+}
+
 const router: IRouter = Router();
 
 // PIN unlock is the one open endpoint; everything else requires the cookie.
@@ -100,6 +186,9 @@ router.post("/work-tree/runs", requireWtAuth, async (req, res) => {
         status: "pending",
       })
       .returning();
+    // Fire-and-forget: the supernova swarm runs in the background; the client
+    // polls the run until it reaches "done" (or "failed").
+    void dispatchToSupernova(mod, (row as Row).id as number, parsed.data.goal.slice(0, 8000));
     res.status(201).json(apiRun(row as Row));
   } catch (e) {
     req.log.error({ err: e }, "work-tree create run failed");
