@@ -1738,13 +1738,18 @@ function appendStreamingRow() {
 }
 
 function updateStreamingRow(text, done) {
-  const content = document.getElementById('stream-content');
+  // Scope to the CURRENT streaming row only. (#streaming-row id is unique — it's
+  // removed on finalize — whereas the inner id="stream-content" would otherwise
+  // collide across finalized bubbles and make getElementById target the oldest
+  // one, scrambling replies into the wrong/earlier message.)
+  const content = document.querySelector('#streaming-row .md-content');
   const typing = document.querySelector('#streaming-row .typing-indicator');
   if (!content) return;
   if (typing) typing.style.display = 'none';
   content.style.display = 'block';
   if (done) {
     content.innerHTML = renderMarkdown(text);
+    content.removeAttribute('id'); // drop stream-content id so it can't collide later
     // Finalize row
     const row = document.getElementById('streaming-row');
     if (row) {
