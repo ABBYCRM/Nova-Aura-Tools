@@ -43,8 +43,31 @@ if (process.env["NODE_ENV"] === "production") {
   if (fs.existsSync(indexHtml)) {
     logger.info({ staticDir }, "Serving Nova UI static files");
     app.use(express.static(staticDir, { index: false }));
+
+    // Cache-busting: stamp a per-deploy version onto fixed-name static assets
+    // (e.g. /assets/bob.js, /assets/nova-bg.png) so every new build is a "new
+    // URL" the browser must re-fetch. Vite-style hashing isn't used here, so we
+    // derive the version from the deploy's git commit (Render injects it),
+    // falling back to server start time. The HTML itself is always revalidated.
+    const BUILD_ID =
+      (process.env["RENDER_GIT_COMMIT"] ?? "").slice(0, 8) ||
+      (process.env["BUILD_ID"] ?? "") ||
+      String(Date.now());
+    let indexHtmlCache: string | null = null;
+    const renderIndexHtml = (): string => {
+      if (indexHtmlCache != null) return indexHtmlCache;
+      const raw = fs.readFileSync(indexHtml, "utf8");
+      indexHtmlCache = raw.replace(
+        /(\/assets\/[A-Za-z0-9_\-./]+\.(?:js|css|png|jpe?g|svg|webp|gif|woff2?|ico))/g,
+        `$1?v=${BUILD_ID}`,
+      );
+      logger.info({ buildId: BUILD_ID }, "Index HTML cache-busting version");
+      return indexHtmlCache;
+    };
+
     app.get(/^(?!\/api).*/, (_req, res) => {
-      res.sendFile(indexHtml);
+      res.setHeader("Cache-Control", "no-cache");
+      res.type("html").send(renderIndexHtml());
     });
   } else {
     logger.warn({ staticDir }, "Nova static dir not found, skipping static serve");
