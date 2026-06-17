@@ -2141,68 +2141,85 @@ function updateButtons() {
 }
 
 // ── Speech-to-text ────────────────────────────────────────────────────────────
-// Prefer OpenAI Whisper (better than browser Web Speech), fall back to the
-// browser's SpeechRecognition API when no OpenAI key is wired in.
+// Capture mic audio as 16 kHz mono 16-bit PCM WAV in the browser and POST it to
+// NOVA's server, which transcribes with NVIDIA Whisper-large-v3 (gRPC) — falling
+// back to OpenAI Whisper server-side. WAV/PCM is required because NVIDIA Riva
+// does not accept the webm/opus container. Falls back to the browser's
+// SpeechRecognition only when Web Audio capture isn't available.
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let mediaRecorder = null;
-let recordedChunks = [];
+let voiceStream = null, voiceCtx = null, voiceProc = null, voiceSrc = null, voicePcm = [];
+
+function _voiceCleanup() {
+  try { if (voiceProc) voiceProc.disconnect(); } catch {}
+  try { if (voiceSrc) voiceSrc.disconnect(); } catch {}
+  try { if (voiceStream) voiceStream.getTracks().forEach(t => t.stop()); } catch {}
+  try { if (voiceCtx) voiceCtx.close(); } catch {}
+  voiceProc = voiceSrc = voiceStream = voiceCtx = null;
+}
+
+// Float32 chunks → 16 kHz mono → 16-bit PCM WAV blob.
+function _encodeWav16k(chunks, inRate) {
+  let n = 0; for (const c of chunks) n += c.length;
+  const flat = new Float32Array(n); let o = 0; for (const c of chunks) { flat.set(c, o); o += c.length; }
+  const outRate = 16000;
+  let data;
+  if (inRate === outRate) { data = flat; }
+  else {
+    const ratio = inRate / outRate, len = Math.floor(flat.length / ratio);
+    data = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+      const start = Math.floor(i * ratio), end = Math.floor((i + 1) * ratio);
+      let s = 0, c = 0; for (let j = start; j < end && j < flat.length; j++) { s += flat[j]; c++; }
+      data[i] = c ? s / c : (flat[Math.min(start, flat.length - 1)] || 0);
+    }
+  }
+  const buf = new ArrayBuffer(44 + data.length * 2), v = new DataView(buf);
+  const w = (off, str) => { for (let i = 0; i < str.length; i++) v.setUint8(off + i, str.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + data.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, outRate, true); v.setUint32(28, outRate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, data.length * 2, true);
+  let off = 44; for (let i = 0; i < data.length; i++) { let s = Math.max(-1, Math.min(1, data[i])); v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2; }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+async function _sendVoiceWav(blob) {
+  setStatus('Transcribing…', 'connecting');
+  try {
+    const res = await fetch('/api/voice/transcribe', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: blob });
+    if (!res.ok) { let d = ''; try { d = (await res.json()).error || ''; } catch {} throw new Error('HTTP ' + res.status + (d ? ' — ' + d : '')); }
+    const j = await res.json();
+    const txt = (j && j.text ? j.text : '').trim();
+    if (txt) { userInput.value = txt; autoResize(); setStatus('Ready', ''); sendMessage(); }
+    else { setStatus('Ready', ''); toast('No speech detected — try again', true); }
+  } catch (e) {
+    console.warn('Voice transcription failed', e);
+    toast('Voice transcription failed — try again', true);
+    setStatus('Ready', '');
+  }
+}
 
 async function startListening() {
   if (listening) { stopListening(); return; }
   stopSpeech();
-  // Whisper runs through NOVA's server (it holds the OpenAI key) — no browser
-  // key needed. We just need mic + MediaRecorder support.
-  const useWhisper = navigator.mediaDevices && window.MediaRecorder;
-
-  if (useWhisper) {
+  const canPcm = navigator.mediaDevices && (window.AudioContext || window.webkitAudioContext);
+  if (canPcm) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      recordedChunks = [];
-      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
-                : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4'
-                : 'audio/webm';
-      mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
-      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
-      mediaRecorder.onstop = async () => {
-        try { stream.getTracks().forEach(t => t.stop()); } catch {}
-        if (!recordedChunks.length) return;
-        const blob = new Blob(recordedChunks, { type: mime });
-        recordedChunks = [];
-        setStatus('Transcribing…', 'connecting');
-        try {
-          // Send raw audio to NOVA's server, which calls Whisper with its key.
-          const res = await fetch('/api/voice/transcribe', {
-            method: 'POST',
-            headers: { 'Content-Type': mime },
-            body: blob
-          });
-          if (!res.ok) {
-            let detail = '';
-            try { detail = (await res.json()).error || ''; } catch {}
-            throw new Error('Transcribe HTTP ' + res.status + (detail ? ' — ' + detail : ''));
-          }
-          const j = await res.json();
-          const txt = (j && j.text ? j.text : '').trim();
-          if (txt) {
-            userInput.value = txt;
-            autoResize();
-            setStatus('Ready', '');
-            sendMessage();
-          } else {
-            setStatus('Ready', '');
-          }
-        } catch (e) {
-          console.warn('Whisper failed', e);
-          toast('Whisper failed — try again', true);
-          setStatus('Ready', '');
-        }
-      };
-      mediaRecorder.start();
+      voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      voiceCtx = new Ctx();
+      voiceSrc = voiceCtx.createMediaStreamSource(voiceStream);
+      voiceProc = voiceCtx.createScriptProcessor(4096, 1, 1);
+      voicePcm = [];
+      voiceProc.onaudioprocess = (e) => { voicePcm.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+      voiceSrc.connect(voiceProc);
+      voiceProc.connect(voiceCtx.destination); // node only runs when connected; we emit silence
       listening = true;
       micBtn.classList.add('listening');
       return;
     } catch (e) {
-      console.warn('Mic / MediaRecorder unavailable, falling back to browser STT', e);
+      console.warn('Mic / WebAudio unavailable, falling back to browser STT', e);
+      _voiceCleanup();
     }
   }
 
@@ -2233,12 +2250,16 @@ function stopListening() {
   const wasListening = listening;
   listening = false;
   micBtn.classList.remove('listening');
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    try { mediaRecorder.stop(); } catch {}
-    mediaRecorder = null;
+  if (voiceCtx || voiceStream) {
+    const chunks = voicePcm;
+    const rate = voiceCtx ? voiceCtx.sampleRate : 48000;
+    _voiceCleanup();
+    voicePcm = [];
+    if (wasListening && chunks && chunks.length) { _sendVoiceWav(_encodeWav16k(chunks, rate)); }
+    return;
   }
   if (recognition) { try { recognition.stop(); } catch {} recognition = null; }
-  if (wasListening && userInput.value.trim() && !mediaRecorder) sendMessage();
+  if (wasListening && userInput.value.trim()) sendMessage();
 }
 
 // ── Settings UI ───────────────────────────────────────────────────────────────
