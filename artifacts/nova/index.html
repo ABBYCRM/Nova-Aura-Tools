@@ -19,35 +19,31 @@ pre code.hljs{display:block;overflow-x:auto;padding:1em}code.hljs{padding:3px 5p
 /* ── Reset & Variables ──────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --bg: #080a12;
-  --surface: #11141f;
-  --surface2: #181c2a;
-  --border: rgba(255,255,255,0.07);
-  --border-strong: rgba(255,255,255,0.13);
-  --text: #e9ebf5;
-  --muted: #8a90a8;
-  --accent: #8b5cf6;
-  --accent2: #22d3ee;
-  --accent-dim: rgba(139,92,246,0.14);
-  --user-bubble: #1b2030;
-  --glass: rgba(17,20,31,0.66);
-  --glow: rgba(139,92,246,0.35);
-  --shadow: 0 18px 50px -12px rgba(0,0,0,0.6);
+  --bg: #000000;
+  --surface: #1e1f20;
+  --surface2: #282a2c;
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.16);
+  --text: #e3e3e3;
+  --muted: #9aa0a6;
+  --accent: #4285f4;
+  --accent2: #d96570;
+  --accent-dim: rgba(66,133,244,0.16);
+  --user-bubble: #2a2b2d;
+  --glass: rgba(30,31,32,0.85);
+  --glow: rgba(66,133,244,0.30);
+  --shadow: 0 18px 50px -12px rgba(0,0,0,0.7);
   --danger: #ef4444;
   --green: #22c55e;
-  --sidebar-w: 264px;
-  --radius: 14px;
+  --spark: linear-gradient(135deg,#4285f4 0%,#9b72cb 45%,#d96570 75%,#f9ab55 100%);
+  --sidebar-w: 280px;
+  --radius: 26px;
 }
 
 html { height: 100%; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background:
-    radial-gradient(1100px 620px at 12% -8%, rgba(139,92,246,0.16), transparent 60%),
-    radial-gradient(950px 700px at 112% 6%, rgba(34,211,238,0.10), transparent 55%),
-    radial-gradient(800px 800px at 50% 120%, rgba(99,102,241,0.10), transparent 60%),
-    linear-gradient(180deg, #0b0e1a 0%, #080a12 55%, #06070d 100%);
-  background-attachment: fixed;
+  background: #000;
   color: var(--text);
   display: flex;
   font-size: 14px;
@@ -64,7 +60,7 @@ body {
   position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image: url("/assets/nova-bg.png");
   background-size: cover; background-position: center right;
-  opacity: 0.42;
+  opacity: 0;
 }
 #nova-bg::after {
   content: ""; position: absolute; inset: 0;
@@ -81,8 +77,7 @@ body {
 #sidebar {
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
-  background: linear-gradient(180deg, rgba(13,16,26,0.82), rgba(8,10,18,0.82));
-  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  background: #000;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -101,7 +96,7 @@ body {
 
 .bob-logo {
   width: 34px; height: 34px;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  background: var(--spark);
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   color: #fff; flex-shrink: 0;
@@ -110,19 +105,17 @@ body {
 .bob-logo svg { width: 18px; height: 18px; }
 
 .sidebar-wordmark {
-  font-size: 1.15rem; font-weight: 800; letter-spacing: 0.02em;
-  background: linear-gradient(135deg, #ffffff, #b9a6ff 60%, #7fe6ff);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-size: 1.35rem; font-weight: 600; letter-spacing: 0.01em;
+  color: var(--text);
 }
 
 #new-chat-btn {
   margin: 12px 12px 8px;
-  padding: 10px 14px;
-  background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(34,211,238,0.12));
-  border: 1px solid rgba(139,92,246,0.32);
-  border-radius: 10px;
-  color: #d7ccff;
+  padding: 13px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  color: var(--text);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -339,7 +332,7 @@ body {
 }
 .es-logo {
   width: 72px; height: 72px;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  background: var(--spark);
   border-radius: 22px;
   display: flex; align-items: center; justify-content: center;
   font-size: 1.9rem; font-weight: 800; color: #fff;
@@ -347,9 +340,7 @@ body {
   box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 18px 44px -8px var(--glow);
 }
 .es-title {
-  font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em;
-  background: linear-gradient(135deg, #ffffff, #b9a6ff 68%, #7fe6ff);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  font-size: 2rem; font-weight: 500; letter-spacing: -0.01em; color: var(--text);
 }
 .es-sub { font-size: 0.9rem; color: var(--muted); max-width: 320px; }
 .prompt-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
@@ -499,15 +490,15 @@ body {
   display: flex; align-items: flex-end; gap: 8px;
 }
 #input-bar {
-  flex: 1; background: var(--surface2); border: 1px solid var(--border-strong);
-  border-radius: 16px; display: flex; align-items: flex-end;
-  padding: 8px 10px; gap: 8px;
-  box-shadow: 0 10px 34px -12px rgba(0,0,0,0.7);
+  flex: 1; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 9999px; display: flex; align-items: flex-end;
+  padding: 8px 14px; gap: 8px;
+  box-shadow: none;
   transition: border-color 0.18s, box-shadow 0.18s;
 }
 #input-bar:focus-within {
-  border-color: rgba(139,92,246,0.55);
-  box-shadow: 0 0 0 3px rgba(139,92,246,0.14), 0 10px 34px -10px rgba(0,0,0,0.7);
+  border-color: rgba(66,133,244,0.55);
+  box-shadow: 0 0 0 2px rgba(66,133,244,0.18);
 }
 
 #user-input {
@@ -519,7 +510,7 @@ body {
 #user-input::placeholder { color: #767b94; }
 
 .bar-btn {
-  width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 9999px; flex-shrink: 0;
   background: var(--surface2); border: 1px solid var(--border);
   color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
@@ -550,10 +541,10 @@ body {
 }
 
 #send-btn {
-  background: linear-gradient(135deg, var(--accent), #6d4bff); border: none; color: #fff;
+  background: var(--spark); border: none; color: #fff;
   box-shadow: 0 6px 18px -6px var(--glow);
 }
-#send-btn:hover { background: linear-gradient(135deg, #9b6dff, #7c5cff); }
+#send-btn:hover { filter: brightness(1.08); }
 #send-btn:disabled { background: #2a2e3c; color: #666; cursor: default; box-shadow: none; }
 
 #stop-btn {
