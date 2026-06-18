@@ -1960,11 +1960,44 @@ async function sendDirect(text, chat) {
 }
 
 function finalizeBotMessage(text, chat) {
-  const botMsg = { id: genId(), role: 'assistant', content: text, ts: now() };
+  const clean = (text || '').trim();
+  // §17 empty-response hardening: empty/placeholder model output is NOT a success.
+  // Show a recoverable "Regenerate" state; never persist an empty assistant turn.
+  if (!clean || clean === '(no response)' || clean === '(no result produced)') {
+    finalizeEmptyResponse();
+    return;
+  }
+  const botMsg = { id: genId(), role: 'assistant', content: clean, ts: now() };
   chat.messages.push(botMsg);
   saveChats();
-  updateStreamingRow(text, true);
-  speak(text);
+  updateStreamingRow(clean, true);
+  speak(clean);
+  setStatus('Ready', '');
+}
+
+// Turn the live streaming row into a recoverable "empty response" state with a
+// Regenerate button — WITHOUT persisting an empty assistant message (§17).
+function finalizeEmptyResponse() {
+  const row = document.getElementById('streaming-row');
+  const typing = document.querySelector('#streaming-row .typing-indicator');
+  const content = document.querySelector('#streaming-row .md-content');
+  if (typing) typing.style.display = 'none';
+  if (content) {
+    content.style.display = 'block';
+    content.removeAttribute('id');
+    content.innerHTML = '<span style="color:var(--danger)">⚠️ The model returned an empty response. Tap <b>Regenerate</b> to retry.</span>';
+  }
+  if (row) row.removeAttribute('id');
+  removeRegenRow();
+  const regenRow = document.createElement('div');
+  regenRow.className = 'msg-row bot';
+  regenRow.id = 'regen-row';
+  regenRow.style.paddingTop = '0';
+  regenRow.innerHTML = '<div style="width:32px;flex-shrink:0;"></div><div class="msg-body"><button class="action-btn" id="regen-btn" style="font-size:0.78rem;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Regenerate</button></div>';
+  const btn = regenRow.querySelector('#regen-btn');
+  if (btn) btn.addEventListener('click', regenerate);
+  chatInner.appendChild(regenRow);
+  toast('Empty response — tap Regenerate', true);
   setStatus('Ready', '');
 }
 
@@ -2116,11 +2149,11 @@ function sendGateway(text, chat) {
 }
 
 function endGatewayStream(text, chat) {
-  if (text) {
+  if ((text || '').trim()) {
     finalizeBotMessage(text, chat);
   } else {
-    const sr = document.getElementById('streaming-row');
-    if (sr) sr.remove();
+    // §17: empty gateway result → recoverable retry, not a silent disappearance.
+    finalizeEmptyResponse();
   }
   streaming = false;
   updateButtons();
