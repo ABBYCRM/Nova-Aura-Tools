@@ -117,7 +117,7 @@ async function openaiTranscribe(buf: Buffer, mime: string): Promise<string> {
   if (!key) throw new Error("OPENAI_API_KEY not set");
   const ext = /wav/.test(mime) ? "wav" : /mp4|m4a|aac/.test(mime) ? "m4a" : /mpeg|mp3/.test(mime) ? "mp3" : "webm";
   const form = new FormData();
-  form.append("file", new Blob([buf], { type: mime }), `clip.${ext}`);
+  form.append("file", new Blob([new Uint8Array(buf)], { type: mime }), `clip.${ext}`);
   form.append("model", "whisper-1");
   const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -130,6 +130,51 @@ async function openaiTranscribe(buf: Buffer, mime: string): Promise<string> {
   try { parsed = JSON.parse(text); } catch { parsed = {}; }
   return (parsed.text ?? "").trim();
 }
+
+// Voices OpenAI's TTS accepts; anything else falls back to the default so a bad
+// client value can't turn into a 400 from the provider.
+const TTS_VOICES = new Set(["alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"]);
+
+// Text → speech (the AI talks back): returns an MP3 the browser can play
+// directly, using the SERVER OpenAI key — no TTS key ever lives in the browser.
+// 501 when unconfigured, which tells the client to fall back to
+// speechSynthesis. Shared with the SUPERNOVA twin (same endpoint there).
+router.post("/voice/speak", express.json({ limit: "64kb" }), async (req, res) => {
+  const { text, voice, speed } = (req.body ?? {}) as { text?: string; voice?: string; speed?: number };
+  const input = String(text ?? "").trim();
+  if (!input) {
+    res.status(400).json({ error: "text is required" });
+    return;
+  }
+  const key = process.env["OPENAI_API_KEY"] ?? "";
+  if (!key) {
+    res.status(501).json({ error: "server TTS not configured (OPENAI_API_KEY missing)" });
+    return;
+  }
+  try {
+    const r = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "tts-1",
+        voice: TTS_VOICES.has(String(voice)) ? voice : "nova",
+        input: input.slice(0, 4096),
+        speed: Math.min(2, Math.max(0.5, Number(speed) || 1.05)),
+      }),
+    });
+    if (!r.ok) {
+      const err = (await r.text()).slice(0, 200);
+      res.status(502).json({ error: `openai tts ${r.status}: ${err}` });
+      return;
+    }
+    const audio = Buffer.from(await r.arrayBuffer());
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-store");
+    res.send(audio);
+  } catch (e) {
+    res.status(502).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
 
 router.post(
   "/voice/transcribe",

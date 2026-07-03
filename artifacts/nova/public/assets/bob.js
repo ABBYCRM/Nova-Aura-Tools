@@ -1504,6 +1504,31 @@ async function speak(text) {
   // Stop anything currently playing
   if (currentTtsAudio) { try { currentTtsAudio.pause(); URL.revokeObjectURL(currentTtsAudio.src); } catch {} currentTtsAudio = null; }
   if (window.speechSynthesis) { try { speechSynthesis.cancel(); } catch {} }
+  // Server-side TTS first (merged twin voice pipeline): the server holds the
+  // OpenAI key, so the AI talks back with no key in the browser. 501/failed →
+  // fall through to the legacy client-key path, then browser speechSynthesis.
+  try {
+    setSpeaking(true);
+    const res = await fetch('/api/voice/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text.slice(0, 4096), voice: settings.ttsVoice || 'nova', speed: settings.speechRate || 1.05 })
+    });
+    if (res.ok) {
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      currentTtsAudio = audio;
+      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); currentTtsAudio = null; };
+      audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(url); currentTtsAudio = null; };
+      await audio.play();
+      return;
+    }
+    setSpeaking(false);
+  } catch (e) {
+    console.warn('server TTS unavailable, trying next engine', e);
+    setSpeaking(false);
+  }
   // Prefer OpenAI TTS if a key is available; otherwise fall back to browser speechSynthesis.
   const key = settings.openaiKey;
   if (key && !key.includes('{env:')) {
