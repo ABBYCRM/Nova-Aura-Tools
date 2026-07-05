@@ -9,7 +9,7 @@
 | **Name** | NOVA | SUPERNOVA / ABBY ("Abby AI") |
 | **Role** | Personal AI assistant + Work‑Tree planner | Multi‑agent swarm orchestrator |
 | **Repo** | `paisabrazilfl-cpu/Nova-` | `paisabrazilfl-cpu/newsupernova` |
-| **Live** | https://nova-sszi.onrender.com | https://supernova-ekbj.onrender.com |
+| **Live** | https://nova-sszi.onrender.com | https://supernova-ai1.onrender.com |
 | **Render** | `srv-d8do…3iq0` · plan `free` · Docker | `srv-d8om…d5ig` · plan `standard` · prebuilt dist |
 | **Frontend** | vanilla SPA (`index.html`+`bob.js`) | React + Vite (`openclaw`) |
 | **Keep‑alive**| Render Cron `nova-keepalive` `*/10` → `/healthz` | always‑on (standard plan) |
@@ -31,7 +31,7 @@ flowchart TD
       NWT[Work-Tree planner]
     end
 
-    subgraph SN["SUPERNOVA / ABBY — Secondary  (supernova-ekbj.onrender.com)"]
+    subgraph SN["SUPERNOVA / ABBY — Secondary  (supernova-ai1.onrender.com)"]
       SUI[React · openclaw]
       SAPI[Express API]
       ORCH[Orchestrator · ABBY]

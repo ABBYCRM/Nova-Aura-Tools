@@ -4,7 +4,7 @@ Adopted 2026-06-18. Governs all work on this twin system.
 
 ## Identity (this project)
 - Primary System  = NOVA            (repo: paisabrazilfl-cpu/Nova-,        live: nova-sszi.onrender.com, Render free)
-- Secondary/Twin  = Supernova/ABBY  (repo: paisabrazilfl-cpu/newsupernova, live: supernova-ekbj.onrender.com, Render standard)
+- Secondary/Twin  = Supernova/ABBY  (repo: paisabrazilfl-cpu/newsupernova, live: supernova-ai1.onrender.com, Render standard)
 - Operator = the user. Orchestrator = ABBY. Specialist agents = the CLAW swarm.
 - Relay between them already exists (SUPERNOVA_API_KEY shared; work-tree dispatch + /api/nova/save-conversation).
 

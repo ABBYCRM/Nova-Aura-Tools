@@ -62,7 +62,7 @@ function apiNode(n: Record<string, unknown>) {
 // the finding into one NOVA workspace category; the client files the report
 // into that workspace (the report carries an <!--sn-category:X--> marker).
 const SUPERNOVA_BASE_URL = (
-  process.env.SUPERNOVA_BASE_URL || "https://supernova-ekbj.onrender.com"
+  process.env.SUPERNOVA_BASE_URL || "https://supernova-ai1.onrender.com"
 ).replace(/\/$/, "");
 const SUPERNOVA_API_KEY =
   process.env.SUPERNOVA_API_KEY || process.env.OPENCLAW_API_KEY || "";
