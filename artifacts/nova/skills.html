@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova Skills — Nova Aura Tools</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0b;
+    --surface: #17171a;
+    --surface2: #222226;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.16);
+    --text: #e3e3e3;
+    --muted: #9aa0a6;
+    --accent: #f97316;
+    --accent2: #ec4899;
+    --accent-dim: rgba(249,115,22,0.16);
+    --spark: linear-gradient(135deg,#f97316 0%,#f59e0b 45%,#ec4899 80%,#f472b6 100%);
+    --green: #22c55e;
+    --danger: #ef4444;
+    --radius: 12px;
+    --sidebar-w: 260px;
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(1100px 520px at 88% -6%, rgba(249,115,22,0.17), transparent 62%),
+      radial-gradient(880px 460px at -8% 106%, rgba(236,72,153,0.10), transparent 62%);
+    background-attachment: fixed;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.6;
+    overflow: hidden;
+  }
+
+  /* ── Scrollbar ──────────────────────────────────── */
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(249,115,22,0.4); }
+
+  /* ── Layout ─────────────────────────────────────── */
+  #app { display: flex; height: 100dvh; overflow: hidden; }
+
+  /* Sidebar */
+  #sidebar {
+    width: var(--sidebar-w);
+    min-width: var(--sidebar-w);
+    background: rgba(10,10,11,0.8);
+    backdrop-filter: blur(16px);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sb-header {
+    padding: 18px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sb-logo {
+    width: 32px; height: 32px;
+    background: var(--spark);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; color: #fff; font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .sb-wordmark { font-size: 1.1rem; font-weight: 600; }
+
+  .sb-nav { padding: 12px 10px; flex: 1; overflow-y: auto; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 8px;
+    color: var(--muted); font-size: 0.85rem; cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    border: none; background: none; width: 100%; text-align: left;
+  }
+  .nav-item:hover { background: var(--surface2); color: var(--text); }
+  .nav-item.active {
+    background: var(--accent-dim);
+    color: var(--text);
+    border: 1px solid rgba(249,115,22,0.3);
+  }
+  .nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+  .sb-footer {
+    padding: 12px; border-top: 1px solid var(--border);
+  }
+  .sb-footer a {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 8px;
+    color: var(--muted); font-size: 0.82rem; cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    text-decoration: none;
+  }
+  .sb-footer a:hover { background: var(--surface2); color: var(--text); }
+
+  /* Main */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+  #header {
+    padding: 12px 22px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(23,23,26,0.85);
+    backdrop-filter: blur(16px);
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 12px;
+  }
+
+  .header-title { font-size: 0.88rem; font-weight: 600; flex: 1; }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #555; flex-shrink: 0;
+  }
+  .status-dot.ok { background: var(--green); }
+  .status-dot.err { background: var(--danger); }
+  .status-label { font-size: 0.72rem; color: var(--muted); }
+
+  /* Content */
+  #content { flex: 1; overflow-y: auto; padding: 0; }
+
+  .content-inner { max-width: 1200px; margin: 0 auto; padding: 20px 24px 60px; }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex; gap: 8px; margin-bottom: 18px;
+    flex-wrap: wrap; align-items: center;
+  }
+
+  .tab-btn {
+    padding: 6px 14px; border-radius: 9999px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--muted); font-size: 0.8rem; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { background: var(--surface2); color: var(--text); }
+  .tab-btn.active {
+    background: var(--accent-dim);
+    border-color: rgba(249,115,22,0.4);
+    color: var(--text);
+  }
+
+  .search-wrap {
+    position: relative; flex: 1; min-width: 200px; max-width: 320px;
+  }
+  .search-wrap svg {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    width: 14px; height: 14px; color: var(--muted); pointer-events: none;
+  }
+  #search-input {
+    width: 100%; padding: 7px 12px 7px 32px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9999px; color: var(--text); font-size: 0.85rem;
+    outline: none; transition: border-color 0.15s;
+  }
+  #search-input:focus { border-color: rgba(249,115,22,0.4); }
+  #search-input::placeholder { color: #767b94; }
+
+  .count-badge {
+    margin-left: auto; font-size: 0.72rem; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 4px 10px; border-radius: 9999px;
+  }
+
+  /* Skills grid */
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+
+  .skill-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  }
+  .skill-card:hover {
+    border-color: rgba(249,115,22,0.45);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px -10px rgba(249,115,22,0.2);
+  }
+
+  .skill-name {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 0.8rem; font-weight: 600; color: var(--text);
+    margin-bottom: 6px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .skill-name .icon {
+    font-size: 0.9rem;
+  }
+
+  .skill-desc {
+    font-size: 0.78rem; color: var(--muted);
+    line-height: 1.5; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .skill-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .tag {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 2px 7px;
+    font-size: 0.68rem; color: var(--muted);
+  }
+  .tag.osint { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.25); color: #f87171; }
+  .tag.composio { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.25); color: #60a5fa; }
+  .tag.voltagent { background: rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.25); color: #34d399; }
+
+  /* Loading skeleton */
+  .skeleton {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+  .sk-line { height: 12px; background: var(--surface2); border-radius: 4px; margin-bottom: 8px; }
+  .sk-line.short { width: 40%; }
+  .sk-line.medium { width: 75%; }
+  .sk-tags { display: flex; gap: 4px; margin-top: 8px; }
+  .sk-tag { width: 48px; height: 18px; background: var(--surface2); border-radius: 5px; }
+  @keyframes shimmer {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-state .emoji { font-size: 2.5rem; margin-bottom: 12px; }
+  .empty-state h3 { font-size: 1.05rem; color: var(--text); margin-bottom: 6px; }
+  .empty-state p { font-size: 0.85rem; }
+
+  /* Error */
+  .alert-error {
+    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+    border-radius: var(--radius); padding: 12px 16px;
+    color: #f87171; font-size: 0.85rem; margin-bottom: 16px;
+  }
+
+  /* ── Detail Drawer ─────────────────────────────────── */
+  #drawer-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 200; backdrop-filter: blur(4px);
+    display: none;
+  }
+  #drawer-overlay.open { display: block; }
+
+  #drawer {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: min(520px, 92vw);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    z-index: 201;
+    display: flex; flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    overflow: hidden;
+  }
+  #drawer.open { transform: translateX(0); }
+
+  .drawer-header {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+  }
+  .drawer-title {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 0.85rem; font-weight: 600; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .drawer-close {
+    padding: 6px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s, color 0.12s;
+  }
+  .drawer-close:hover { background: var(--border-strong); color: var(--text); }
+  .drawer-close svg { width: 14px; height: 14px; }
+
+  .drawer-body {
+    flex: 1; overflow-y: auto; padding: 16px 18px;
+  }
+  .drawer-body pre {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 0.78rem; line-height: 1.7;
+    color: var(--text); white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+
+  .drawer-body .meta-info {
+    font-size: 0.8rem; color: var(--muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+    margin-bottom: 12px;
+  }
+
+  .drawer-loading {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 8px 0;
+  }
+
+  /* ── Responsive ─────────────────────────────────────── */
+  @media (max-width: 768px) {
+    #sidebar { display: none; }
+    #grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div class="sb-header">
+      <div class="sb-logo">⚡</div>
+      <span class="sb-wordmark">Nova Aura</span>
+    </div>
+
+    <div class="sb-nav">
+      <button class="nav-item" id="nav-home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Chat
+      </button>
+      <button class="nav-item active" id="nav-skills">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        Skills Catalog
+      </button>
+      <button class="nav-item" id="nav-osint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        OSINT Tools
+      </button>
+      <button class="nav-item" id="nav-settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M5.34 18.66l-1.41 1.41M20 12h2M2 12H0M19.07 19.07l-1.41-1.41M5.34 5.34L3.93 3.93M12 20v2M12 2v2"/></svg>
+        Settings
+      </button>
+    </div>
+
+    <div class="sb-footer">
+      <a href="https://github.com/ABBYCRM/Nova-Aura-Tools" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        Nova-Aura-Tools on GitHub
+      </a>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="header">
+      <div class="header-title">⚡ Skills Catalog — Nova Aura Tools</div>
+      <div class="status-dot" id="status-dot"></div>
+      <div class="status-label" id="status-label">Connecting…</div>
+    </div>
+
+    <div id="content">
+      <div class="content-inner">
+        <div class="alert-error" id="error-box" style="display:none"></div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+          <button class="tab-btn active" data-tab="all">All Skills</button>
+          <button class="tab-btn" data-tab="osint">🕵️ OSINT</button>
+          <button class="tab-btn" data-tab="composio">⚡ Composio</button>
+          <button class="tab-btn" data-tab="voltagent">🔌 VoltAgent</button>
+          <div class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="search-input" placeholder="Search skills…" />
+          </div>
+          <div class="count-badge" id="count-badge">—</div>
+        </div>
+
+        <!-- Grid -->
+        <div id="grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Drawer -->
+<div id="drawer-overlay"></div>
+<div id="drawer">
+  <div class="drawer-header">
+    <div class="drawer-title" id="drawer-title">skill-name</div>
+    <button class="drawer-close" id="drawer-close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── State ───────────────────────────────────────────────────
+  let allSkills = [];
+  let activeTab = 'all';
+  let searchQuery = '';
+  let loading = true;
+
+  // ── DOM refs ────────────────────────────────────────────────
+  var grid         = document.getElementById('grid');
+  var searchInput  = document.getElementById('search-input');
+  var countBadge   = document.getElementById('count-badge');
+  var statusDot    = document.getElementById('status-dot');
+  var statusLabel  = document.getElementById('status-label');
+  var errorBox     = document.getElementById('error-box');
+  var drawer       = document.getElementById('drawer');
+  var drawerOverlay= document.getElementById('drawer-overlay');
+  var drawerTitle  = document.getElementById('drawer-title');
+  var drawerBody   = document.getElementById('drawer-body');
+
+  // ── Helpers ─────────────────────────────────────────────────
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = (s == null) ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function setStatus(ok, label) {
+    statusDot.className = 'status-dot ' + (ok ? 'ok' : 'err');
+    statusLabel.textContent = label;
+  }
+
+  function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.style.display = 'block';
+  }
+
+  function tagClass(name, tags) {
+    if (!tags) return '';
+    if (name.includes('osint')) return 'osint';
+    if (name.includes('composio')) return 'composio';
+    if (name.includes('voltagent') || name.includes('awesome-agent')) return 'voltagent';
+    return '';
+  }
+
+  function skillIcon(name) {
+    if (name.includes('osint')) return '🕵️';
+    if (name.includes('composio')) return '⚡';
+    if (name.includes('voltagent') || name.includes('awesome-agent')) return '🔌';
+    if (name.includes('superpower')) return '🦸';
+    if (name.includes('git')) return '🔀';
+    if (name.includes('code')) return '💻';
+    return '📦';
+  }
+
+  // ── Render ─────────────────────────────────────────────────
+  function renderSkeletons(n) {
+    var html = '';
+    for (var i = 0; i < n; i++) {
+      html += '<div class="skeleton"><div class="sk-line short"></div><div class="sk-line medium"></div><div class="sk-tags"><div class="sk-tag"></div><div class="sk-tag"></div></div></div>';
+    }
+    grid.innerHTML = html;
+  }
+
+  function renderEmpty(msg) {
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="emoji">🔍</div><h3>No skills found</h3><p>' + esc(msg) + '</p></div>';
+  }
+
+  function renderSkills(skills) {
+    if (!skills.length) {
+      renderEmpty('Try a different search or tab');
+      countBadge.textContent = '0';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < skills.length; i++) {
+      var s = skills[i];
+      var tags = (s.tags || []).slice(0, 4);
+      var tc = tagClass(s.name, s.tags);
+      html += '<div class="skill-card" data-name="' + esc(s.name) + '">';
+      html += '<div class="skill-name"><span class="icon">' + skillIcon(s.name) + '</span> ' + esc(s.name) + '</div>';
+      html += '<div class="skill-desc">' + esc(s.description) + '</div>';
+      if (tags.length) {
+        html += '<div class="skill-tags">';
+        for (var j = 0; j < tags.length; j++) {
+          var isSpecial = (tc && j === 0);
+          html += '<span class="tag' + (isSpecial ? ' ' + tc : '') + '">' + esc(tags[j]) + '</span>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    grid.innerHTML = html;
+    countBadge.textContent = skills.length + ' skill' + (skills.length !== 1 ? 's' : '');
+  }
+
+  function filterSkills() {
+    var filtered = allSkills.filter(function (s) {
+      var matchSearch = !searchQuery ||
+        s.name.toLowerCase().indexOf(searchQuery) !== -1 ||
+        (s.description || '').toLowerCase().indexOf(searchQuery) !== -1;
+      if (!matchSearch) return false;
+      if (activeTab === 'osint') return s.name.indexOf('osint') !== -1 || (s.tags || []).indexOf('osint') !== -1;
+      if (activeTab === 'composio') return s.name.indexOf('composio') !== -1;
+      if (activeTab === 'voltagent') return s.name.indexOf('voltagent') !== -1 || s.name.indexOf('awesome-agent') !== -1;
+      return true;
+    });
+    renderSkills(filtered);
+  }
+
+  // ── Detail Drawer ──────────────────────────────────────────
+  function openDrawer(name) {
+    drawerTitle.textContent = name;
+    drawerBody.innerHTML = '<div class="drawer-loading"><div class="sk-line medium"></div><div class="sk-line medium"></div><div class="sk-line short"></div></div>';
+    drawerOverlay.classList.add('open');
+    drawer.classList.add('open');
+
+    var url = '/api/skills/' + encodeURIComponent(name);
+    fetch(url)
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        var content = data.content || data.description || '';
+        if (content) {
+          drawerBody.innerHTML = '<pre>' + esc(content) + '</pre>';
+        } else {
+          drawerBody.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No details available for this skill.</p>';
+        }
+      })
+      .catch(function (err) {
+        drawerBody.innerHTML = '<p style="color:var(--danger);font-size:0.85rem">Failed to load: ' + esc(err.message) + '</p>';
+      });
+  }
+
+  function closeDrawer() {
+    drawerOverlay.classList.remove('open');
+    drawer.classList.remove('open');
+  }
+
+  // ── API ─────────────────────────────────────────────────────
+  function loadSkills() {
+    renderSkeletons(9);
+    fetch('/api/skills')
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        allSkills = data.skills || [];
+        loading = false;
+        setStatus(true, allSkills.length + ' skills loaded');
+        filterSkills();
+      })
+      .catch(function (err) {
+        loading = false;
+        setStatus(false, 'Failed to load');
+        showError('Could not connect to the skills API. Make sure the Nova API server is running. ' + esc(err.message));
+        renderEmpty('API unreachable');
+      });
+  }
+
+  // ── Events ──────────────────────────────────────────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+
+    // Tab buttons
+    var tabBtn = t.closest('.tab-btn');
+    if (tabBtn) {
+      document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+      tabBtn.classList.add('active');
+      activeTab = tabBtn.dataset.tab;
+      filterSkills();
+      return;
+    }
+
+    // Skill card
+    var card = t.closest('.skill-card');
+    if (card) {
+      openDrawer(card.dataset.name);
+      return;
+    }
+
+    // Close drawer
+    if (t.closest('#drawer-close') || t.id === 'drawer-overlay') {
+      closeDrawer();
+      return;
+    }
+
+    // Sidebar nav
+    var navBtn = t.closest('.nav-item');
+    if (navBtn) {
+      var id = navBtn.id;
+      if (id === 'nav-home') window.location.href = '/';
+      if (id === 'nav-skills') { /* already here */ }
+      if (id === 'nav-osint') window.location.href = '/#osint';
+      if (id === 'nav-settings') window.location.href = '/#settings';
+    }
+  });
+
+  searchInput.addEventListener('input', function () {
+    searchQuery = searchInput.value.trim().toLowerCase();
+    filterSkills();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  // ── Boot ────────────────────────────────────────────────────
+  loadSkills();
+})();
+</script>
+</body>
+</html>

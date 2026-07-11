@@ -65,6 +65,17 @@ if (process.env["NODE_ENV"] === "production") {
       return indexHtmlCache;
     };
 
+    // Serve skills catalog page at /skills (before the SPA catch-all)
+    app.get("/skills", (_req, res) => {
+      const skillsHtml = path.join(staticDir, "skills.html");
+      if (fs.existsSync(skillsHtml)) {
+        res.setHeader("Cache-Control", "no-cache");
+        res.type("html").sendFile(skillsHtml);
+      } else {
+        res.status(404).type("html").send("skills.html not found");
+      }
+    });
+
     app.get(/^(?!\/api).*/, (_req, res) => {
       res.setHeader("Cache-Control", "no-cache");
       res.type("html").send(renderIndexHtml());
