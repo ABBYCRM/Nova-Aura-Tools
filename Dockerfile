@@ -28,7 +28,9 @@ COPY --from=builder /app/artifacts/api-server/dist ./dist
 # Worker: lean production bundle (pg node_modules + all .mjs scripts)
 COPY --from=builder /app/scripts-deploy ./scripts
 COPY artifacts/nova/index.html ./nova-static/index.html
+COPY artifacts/nova/skills.html ./nova-static/skills.html
 COPY artifacts/nova/public ./nova-static
+COPY skills ./skills
 COPY SOUL.md AGENTS.md DIRECTIVE.md IDENTITY.md USER.md HEARTBEAT.md TOOLS.md TASKS.md GOVERNANCE.json ./
 
 EXPOSE 8080

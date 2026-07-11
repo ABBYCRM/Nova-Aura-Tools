@@ -7,6 +7,7 @@ import integrationsRouter from "./integrations";
 import knowledgeRouter from "./knowledge";
 import openaiProxyRouter from "./openai-proxy";
 import voiceRouter from "./voice";
+import skillsRouter from "./skills";
 import { requireWtAuth } from "../lib/work-tree-auth";
 
 const router: IRouter = Router();
@@ -27,5 +28,6 @@ router.use(["/integrations", "/knowledge"], requireWtAuth);
 router.use(integrationsRouter);
 router.use(knowledgeRouter);
 router.use(openaiProxyRouter);
+router.use(skillsRouter);
 
 export default router;
