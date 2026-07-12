@@ -23,7 +23,7 @@ COPY package.json ./
 # pnpm install returns 1 if the lockfile is stale (new dirs added after lockfile
 # was generated). Using --prefer-frozen-lockfile avoids the exit-1 issue by
 # treating missing optional deps as non-fatal.
-RUN NODE_OPTIONS="--max-old-space-size=384" pnpm install --ignore-scripts --prefer-frozen-lockfile --reporter=silent
+RUN NODE_OPTIONS="--max-old-space-size=384" pnpm install --ignore-scripts --prefer-frozen-lockfile
 
 # Copy remaining source
 COPY lib/ ./lib/
@@ -31,7 +31,6 @@ COPY artifacts/api-server/ ./artifacts/api-server/
 COPY artifacts/nova/ ./artifacts/nova/
 COPY scripts/ ./scripts/
 COPY skills/ ./skills/
-COPY skills-catalog/ ./skills-catalog/
 
 # Build the API server
 RUN pnpm --filter @workspace/api-server run build
