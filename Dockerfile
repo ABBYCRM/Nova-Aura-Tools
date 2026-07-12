@@ -6,16 +6,19 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# NOTE: Do NOT set NODE_ENV=production here — devDependencies (esbuild, etc.)
-# are needed for building. NODE_ENV is set only in the runtime stage.
+# Install pnpm v9.15.4 (a stable mid-range v9 release).
+# Using a specific minor version rather than @9 ensures exact reproducibility.
+RUN npm install -g pnpm@9.15.4
 
 # Copy lockfile + package manifests only (cache layer)
 COPY pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY package.json ./
 
 # Install all workspace deps (devDependencies included for build).
-# --reporter=silent: default reporter exits 1 in Render's Docker env (confirmed).
-RUN npm install -g pnpm@9 && pnpm install --reporter=silent
+# --force: bypass all checks and force install despite peer conflicts
+# (esbuild@0.27.3 conflicts with esbuild-plugin-pino peer dep; force resolves it)
+# Do NOT set NODE_ENV=production here — devDeps (esbuild) are needed for build.
+RUN pnpm install --force
 
 # Copy remaining source
 COPY lib/ ./lib/
@@ -24,7 +27,7 @@ COPY artifacts/nova/ ./artifacts/nova/
 COPY scripts/ ./scripts/
 COPY skills/ ./skills/
 
-# Build only the api-server (devDependencies available: esbuild is installed)
+# Build the api-server (esbuild available as devDependency)
 RUN pnpm --filter @workspace/api-server run build
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
