@@ -6,8 +6,7 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install pnpm v9.15.4 (a stable mid-range v9 release).
-# Using a specific minor version rather than @9 ensures exact reproducibility.
+# Install pnpm v9.15.4 globally
 RUN npm install -g pnpm@9.15.4
 
 # Copy lockfile + package manifests only (cache layer)
@@ -15,10 +14,8 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY package.json ./
 
 # Install all workspace deps (devDependencies included for build).
-# --force: bypass all checks and force install despite peer conflicts
-# (esbuild@0.27.3 conflicts with esbuild-plugin-pino peer dep; force resolves it)
-# Do NOT set NODE_ENV=production here — devDeps (esbuild) are needed for build.
-RUN pnpm install --force
+# No NODE_ENV=production in builder — devDeps (esbuild) are needed here.
+RUN pnpm install
 
 # Copy remaining source
 COPY lib/ ./lib/
@@ -27,8 +24,11 @@ COPY artifacts/nova/ ./artifacts/nova/
 COPY scripts/ ./scripts/
 COPY skills/ ./skills/
 
-# Build the api-server (esbuild available as devDependency)
-RUN pnpm --filter @workspace/api-server run build
+# Build the api-server.
+# NODE_PATH=/app/node_modules: workspace packages are hoisted to the
+# workspace root by pnpm; this lets Node find them when running from a
+# subdirectory (node_modules only lives at /app/, not at /app/artifacts/api-server/).
+RUN NODE_PATH=/app/node_modules pnpm --filter @workspace/api-server run build
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
 FROM node:22-slim AS runtime
