@@ -25,10 +25,9 @@ COPY scripts/ ./scripts/
 COPY skills/ ./skills/
 
 # Build the api-server.
-# NODE_PATH=/app/node_modules: workspace packages are hoisted to the
-# workspace root by pnpm; this lets Node find them when running from a
-# subdirectory (node_modules only lives at /app/, not at /app/artifacts/api-server/).
-RUN NODE_PATH=/app/node_modules pnpm --filter @workspace/api-server run build
+# cd /app: pnpm's virtual store (.pnpm/) is at the workspace root (/app/).
+# Running from /app means Node can resolve packages from the virtual store.
+RUN cd /app && node ./artifacts/api-server/build.mjs
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
 FROM node:22-slim AS runtime
