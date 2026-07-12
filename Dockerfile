@@ -14,7 +14,8 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY package.json ./
 
 # Install all workspace deps (devDependencies included for build).
-# No NODE_ENV=production in builder — devDeps (esbuild) are needed here.
+# Explicitly unset NODE_ENV to prevent any accidental production-mode behavior.
+ENV NODE_ENV=development
 RUN pnpm install
 
 # Copy remaining source
@@ -23,6 +24,11 @@ COPY artifacts/api-server/ ./artifacts/api-server/
 COPY artifacts/nova/ ./artifacts/nova/
 COPY scripts/ ./scripts/
 COPY skills/ ./skills/
+
+# Debug: list node_modules contents to verify packages
+RUN echo "=== node_modules/ root ===" && ls /app/node_modules/ | head -20 && \
+    echo "=== .pnpm contents ===" && ls /app/node_modules/.pnpm/ | grep "^esbuild@" | head -5 && \
+    echo "=== esbuild symlink check ===" && ls -la /app/node_modules/esbuild 2>/dev/null || echo "NO esbuild symlink at root"
 
 # Build the api-server.
 # cd /app: pnpm's virtual store (.pnpm/) is at the workspace root (/app/).
