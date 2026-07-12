@@ -12,11 +12,13 @@ RUN npm install -g pnpm@9.15.4
 # Copy lockfile + package manifests only (cache layer)
 COPY pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY package.json ./
+COPY .npmrc ./
 
 # Install all workspace deps (devDependencies included for build).
-# Explicitly unset NODE_ENV to prevent any accidental production-mode behavior.
-ENV NODE_ENV=development
-RUN pnpm install
+# --shamefully-hoist: makes all packages accessible from root node_modules/
+#   so Node.js can resolve them when running build scripts from subdirectories.
+# No NODE_ENV=production in builder — devDeps (esbuild) are needed here.
+RUN pnpm install --shamefully-hoist
 
 # Copy remaining source
 COPY lib/ ./lib/
@@ -25,15 +27,10 @@ COPY artifacts/nova/ ./artifacts/nova/
 COPY scripts/ ./scripts/
 COPY skills/ ./skills/
 
-# Debug: list node_modules contents to verify packages
-RUN echo "=== node_modules/ root ===" && ls /app/node_modules/ | head -20 && \
-    echo "=== .pnpm contents ===" && ls /app/node_modules/.pnpm/ | grep "^esbuild@" | head -5 && \
-    echo "=== esbuild symlink check ===" && ls -la /app/node_modules/esbuild 2>/dev/null || echo "NO esbuild symlink at root"
-
 # Build the api-server.
-# cd /app: pnpm's virtual store (.pnpm/) is at the workspace root (/app/).
-# Running from /app means Node can resolve packages from the virtual store.
-RUN cd /app && node ./artifacts/api-server/build.mjs
+# --shamefully-hoist makes esbuild available at /app/node_modules/esbuild/,
+# which Node.js finds via standard module resolution.
+RUN node ./artifacts/api-server/build.mjs
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
 FROM node:22-slim AS runtime
