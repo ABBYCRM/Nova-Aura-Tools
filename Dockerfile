@@ -9,30 +9,29 @@ WORKDIR /app
 # Install pnpm v9.15.4 globally
 RUN npm install -g pnpm@9.15.4
 
-# Copy lockfile + package manifests only (cache layer)
+# Copy ALL package.json files FIRST (critical for pnpm workspace resolution).
+# pnpm install must see every workspace package.json before it can resolve deps.
 COPY pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY package.json ./
+COPY artifacts/api-server/package.json ./artifacts/api-server/
+COPY lib/api-zod/package.json ./lib/api-zod/
+COPY lib/db/package.json ./lib/db/
+COPY scripts/package.json ./scripts/
 COPY .npmrc ./
 
-# Install all workspace deps (devDependencies included for build).
-# --shamefully-hoist: hoists all packages to root node_modules/ so Node.js
-#   can resolve them regardless of cwd.
-# NODE_PATH: fallback path for packages that might be in pnpm's virtual store.
-RUN pnpm install --shamefully-hoist && \
-    echo "=== esbuild check ===" && \
-    ls /app/node_modules/esbuild/package.json 2>/dev/null && echo "ESBUILD OK" || echo "ESBUILD MISSING"
+# Install ALL workspace deps including esbuild from artifacts/api-server.
+# This works because all package.json files exist before install runs.
+RUN pnpm install --shamefully-hoist
 
-# Copy remaining source
+# Copy remaining source (package.json files above are already here, so this
+# just overwrites them with the full content - idempotent)
 COPY lib/ ./lib/
 COPY artifacts/api-server/ ./artifacts/api-server/
 COPY artifacts/nova/ ./artifacts/nova/
 COPY scripts/ ./scripts/
 COPY skills/ ./skills/
 
-# Build the api-server.
-# If --shamefully-hoist worked, esbuild is at /app/node_modules/esbuild/
-# If it didn't, NODE_PATH points to the pnpm virtual store.
-ENV NODE_PATH=/app/node_modules/.pnpm/esbuild@0.27.3/node_modules:/app/node_modules
+# Build the api-server
 RUN node ./artifacts/api-server/build.mjs
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
