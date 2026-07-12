@@ -1,10 +1,11 @@
-import { db, integrationCredentialsTable } from "@workspace/db";
+import { db, integrationCredentialsTable, hasDatabase } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 export type ServiceFields = Record<string, string>;
 
 // Read the stored credential bag for a service. Returns {} when nothing is set.
 export async function getCredentials(service: string): Promise<ServiceFields> {
+  if (!hasDatabase || !db) return {};
   const rows = await db
     .select()
     .from(integrationCredentialsTable)
@@ -19,6 +20,9 @@ export async function setCredentials(
   service: string,
   incoming: ServiceFields,
 ): Promise<void> {
+  if (!hasDatabase || !db) {
+    throw new Error("database not configured (set DATABASE_URL to enable credentials)");
+  }
   const merged: ServiceFields = { ...(await getCredentials(service)) };
   for (const [k, v] of Object.entries(incoming)) {
     if (v === "") delete merged[k];

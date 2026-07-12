@@ -1,4 +1,4 @@
-import { db, knowledgeChunksTable } from "@workspace/db";
+import { db, knowledgeChunksTable, hasDatabase } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -68,6 +68,7 @@ const MAX_CHUNKS_PER_INGEST = 60;
 // "save to NOVA workspace" works on a fresh DB). Runs once per process.
 let schemaReady: Promise<void> | null = null;
 export function ensureKnowledgeSchema(): Promise<void> {
+  if (!hasDatabase || !db) return Promise.resolve();
   if (!schemaReady) {
     schemaReady = (async () => {
       await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
@@ -94,6 +95,7 @@ export function ensureKnowledgeSchema(): Promise<void> {
 
 // Chunk → embed → store. Returns the inserted row ids.
 export async function ingestText(opts: IngestOpts): Promise<number[]> {
+  if (!hasDatabase || !db) return [];
   await ensureKnowledgeSchema();
   const chunks = chunkText(opts.content);
   if (chunks.length > MAX_CHUNKS_PER_INGEST) {
@@ -158,6 +160,7 @@ export async function searchKnowledge(
 }
 
 export async function hasKnowledge(): Promise<boolean> {
+  if (!hasDatabase || !db) return false;
   const result = await db.execute(
     sql`SELECT 1 FROM knowledge_chunks WHERE embedding IS NOT NULL LIMIT 1`,
   );
